@@ -21,6 +21,7 @@ type StepKey = "queued" | "translating" | "voice" | "video" | "done" | "error";
 type LangProgress = {
   code: string;
   step: StepKey;
+  note?: string;
   error?: string;
   videoUrl?: string;
   videoId?: string;
@@ -39,6 +40,19 @@ const STEP_LABEL: Record<StepKey, string> = {
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+// WaveSpeed sometimes fails a render because its model server didn't cold-boot
+// in time ("Server did not start within 120 seconds"). That's transient — a
+// fresh submit usually lands on a warm/healthy worker, so we auto-resubmit.
+function isTransientVideoError(message: string): boolean {
+  return /did not start|failed to start|server error|try again|timeout|timed out|unavailable|boot/i.test(
+    message
+  );
+}
+
+const POLL_INTERVAL_MS = 5000;
+const MAX_POLLS = 240; // per attempt: 240 × 5s = 20 min of patience
+const MAX_VIDEO_ATTEMPTS = 3;
 
 export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
   const [phase, setPhase] = useState<"form" | "running" | "results">("form");
@@ -97,6 +111,58 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
     setProgress((prev) => prev.map((p) => (p.code === code ? { ...p, ...patch } : p)));
   }
 
+  // Submit one render and poll it to completion. Returns the finished video
+  // URL, or throws on a non-transient failure. Each poll is a fast, independent
+  // request, so no serverless function ever blocks on the render.
+  async function submitAndPoll(avatarId: string, audioUrl: string): Promise<string> {
+    const sRes = await fetch("/api/studio/video/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ avatarId, audioUrl }),
+    });
+    const sJson = await sRes.json();
+    if (!sRes.ok) throw new Error(sJson.error ?? "Could not start video.");
+    const predictionId: string = sJson.predictionId;
+
+    for (let i = 0; i < MAX_POLLS; i++) {
+      await sleep(POLL_INTERVAL_MS);
+      const pRes = await fetch(`/api/studio/video/status?id=${encodeURIComponent(predictionId)}`);
+      const pJson = await pRes.json();
+      if (!pRes.ok) throw new Error(pJson.error ?? "Status check failed.");
+      if (pJson.status === "succeeded") {
+        if (!pJson.videoUrl) throw new Error("No output video was returned.");
+        return pJson.videoUrl as string;
+      }
+      if (pJson.status === "failed" || pJson.status === "canceled") {
+        throw new Error(pJson.error ? String(pJson.error) : `lip-sync ${pJson.status}`);
+      }
+      // still processing → keep polling
+    }
+    throw new Error("timed out waiting for the result.");
+  }
+
+  // Wraps submitAndPoll with auto-resubmit on transient WaveSpeed startup
+  // errors (a fresh submit usually hits a healthy worker).
+  async function generateVideo(avatarId: string, audioUrl: string, code: string): Promise<string> {
+    let lastError = "";
+    for (let attempt = 1; attempt <= MAX_VIDEO_ATTEMPTS; attempt++) {
+      try {
+        if (attempt > 1) {
+          setStep(code, { step: "video", note: `retry ${attempt}/${MAX_VIDEO_ATTEMPTS}…` });
+        }
+        return await submitAndPoll(avatarId, audioUrl);
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : "Video failed.";
+        if (attempt < MAX_VIDEO_ATTEMPTS && isTransientVideoError(lastError)) {
+          await sleep(2000);
+          continue;
+        }
+        break;
+      }
+    }
+    throw new Error(`Video: ${lastError}`);
+  }
+
   async function runLanguage(code: string, jobId: string) {
     const avatar = selectedAvatar!;
     try {
@@ -123,32 +189,11 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
       const audioUrl: string = vJson.audioUrl;
       const durationSeconds: number = vJson.durationSeconds;
 
-      // c) Video (start + poll).
-      setStep(code, { step: "video" });
-      const sRes = await fetch("/api/studio/video/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ avatarId: avatar.id, audioUrl }),
-      });
-      const sJson = await sRes.json();
-      if (!sRes.ok) throw new Error(`Video: ${sJson.error}`);
-      const predictionId: string = sJson.predictionId;
-
-      let finishedVideoUrl: string | null = null;
-      for (let i = 0; i < 200; i++) {
-        await sleep(4000);
-        const pRes = await fetch(`/api/studio/video/status?id=${encodeURIComponent(predictionId)}`);
-        const pJson = await pRes.json();
-        if (!pRes.ok) throw new Error(`Video: ${pJson.error}`);
-        if (pJson.status === "succeeded") {
-          finishedVideoUrl = pJson.videoUrl;
-          break;
-        }
-        if (pJson.status === "failed" || pJson.status === "canceled") {
-          throw new Error(`Video: lip-sync ${pJson.status}${pJson.error ? ` — ${pJson.error}` : ""}`);
-        }
-      }
-      if (!finishedVideoUrl) throw new Error("Video: timed out waiting for the result.");
+      // c) Video — async submit + poll, with auto-resubmit on transient
+      //    WaveSpeed startup failures. No single request waits for the render;
+      //    the client just keeps polling each fast status call.
+      setStep(code, { step: "video", note: undefined });
+      const finishedVideoUrl = await generateVideo(avatar.id, audioUrl, code);
 
       // d) Finalize (download → store → DB row).
       const fRes = await fetch("/api/studio/finalize", {
@@ -221,7 +266,9 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
                 const label =
                   p.step === "translating"
                     ? `Translating to ${lang?.label}…`
-                    : STEP_LABEL[p.step];
+                    : p.step === "video" && p.note
+                      ? `${STEP_LABEL.video} (${p.note})`
+                      : STEP_LABEL[p.step];
                 return (
                   <li key={p.code} className={`progress-item step-${p.step}`}>
                     <span className="progress-lang">{lang?.label}</span>
