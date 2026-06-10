@@ -1,14 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authedContext } from "@/lib/studio-auth";
 import { GENERATED_CONTENT_BUCKET } from "@/lib/avatars";
+import { burnCaption } from "@/lib/overlay";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 // POST /api/studio/finalize
-// { avatarId, jobId, language, aspectRatio, originalScript, durationSeconds, videoUrl }
-// Downloads the finished generated video into the private bucket, creates the
-// `videos` row (status='ready'), and returns a signed playback/download URL.
+// Downloads the finished video, burns the optional on-screen text overlay,
+// stores it privately, creates the `videos` row (status='ready'), and returns
+// a signed playback/download URL.
 export async function POST(request: NextRequest) {
   const ctx = await authedContext();
   if (!ctx) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -21,8 +22,22 @@ export async function POST(request: NextRequest) {
     originalScript?: string;
     durationSeconds?: number;
     videoUrl?: string;
+    wardrobePresetId?: string | null;
+    backgroundPresetId?: string | null;
+    overlayText?: string | null;
   };
-  const { avatarId, jobId, language, aspectRatio, originalScript, durationSeconds, videoUrl } = body;
+  const {
+    avatarId,
+    jobId,
+    language,
+    aspectRatio,
+    originalScript,
+    durationSeconds,
+    videoUrl,
+    wardrobePresetId,
+    backgroundPresetId,
+    overlayText,
+  } = body;
 
   if (!avatarId || !jobId || !language || !aspectRatio || !videoUrl) {
     return NextResponse.json({ error: "Missing finalize parameters." }, { status: 400 });
@@ -43,9 +58,21 @@ export async function POST(request: NextRequest) {
     // 1. Download the finished video from the generation provider.
     const res = await fetch(videoUrl);
     if (!res.ok) throw new Error(`Could not download generated video (${res.status}).`);
-    const bytes = Buffer.from(await res.arrayBuffer());
+    let bytes: Uint8Array = Buffer.from(await res.arrayBuffer());
 
-    // 2. Store it privately.
+    // 2. Burn the on-screen text overlay (programmatic, no model cost). If
+    //    ffmpeg fails for any reason, fall back to the un-captioned video so
+    //    the generation never fails on the overlay step.
+    const caption = (overlayText ?? "").trim();
+    if (caption) {
+      try {
+        bytes = await burnCaption(bytes, caption, aspectRatio);
+      } catch (e) {
+        console.error(`[overlay] caption burn failed, using original video: ${String(e)}`);
+      }
+    }
+
+    // 3. Store it privately.
     const path = `${ctx.accountId}/${avatarId}/${jobId}/video_${language}.mp4`;
     const { error: upErr } = await ctx.supabase.storage
       .from(GENERATED_CONTENT_BUCKET)
@@ -61,6 +88,9 @@ export async function POST(request: NextRequest) {
         script: originalScript ?? null,
         language,
         aspect_ratio: aspectRatio,
+        wardrobe_preset_id: wardrobePresetId ?? null,
+        background_preset_id: backgroundPresetId ?? null,
+        overlay_text: caption || null,
         status: "ready",
         duration_seconds: durationSeconds ?? null,
         output_url: path,

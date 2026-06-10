@@ -25,7 +25,7 @@ export default async function StudioPage() {
 
   const avatars = (data ?? []) as Avatar[];
 
-  // Signed thumbnail for the first reference photo of each avatar.
+  // Signed thumbnail + wardrobe/background presets for each avatar.
   const studioAvatars: StudioAvatar[] = await Promise.all(
     avatars.map(async (a) => {
       let thumbnailUrl: string | null = null;
@@ -36,12 +36,28 @@ export default async function StudioPage() {
           .createSignedUrl(first, 3600);
         thumbnailUrl = signed?.signedUrl ?? null;
       }
+
+      const [{ data: wardrobe }, { data: background }] = await Promise.all([
+        supabase
+          .from("wardrobe_presets")
+          .select("id, label")
+          .eq("avatar_id", a.id)
+          .order("label"),
+        supabase
+          .from("background_presets")
+          .select("id, label")
+          .eq("avatar_id", a.id)
+          .order("label"),
+      ]);
+
       return {
         id: a.id,
         name: a.name,
         hasVoice: Boolean(a.elevenlabs_voice_id),
         defaultLanguage: a.default_language,
         thumbnailUrl,
+        wardrobe: wardrobe ?? [],
+        background: background ?? [],
       };
     })
   );

@@ -14,6 +14,8 @@ export type StudioAvatar = {
   hasVoice: boolean;
   defaultLanguage: string;
   thumbnailUrl: string | null;
+  wardrobe: { id: string; label: string }[];
+  background: { id: string; label: string }[];
 };
 
 type StepKey = "queued" | "translating" | "voice" | "video" | "done" | "error";
@@ -65,6 +67,15 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
   const [languages, setLanguages] = useState<string[]>([]);
   const [aspectRatio, setAspectRatio] = useState("9:16");
 
+  // Look (wardrobe + background presets) and on-screen text.
+  const [wardrobeId, setWardrobeId] = useState<string>("");
+  const [backgroundId, setBackgroundId] = useState<string>("");
+  const [overlayText, setOverlayText] = useState("");
+  const [lookImageUrl, setLookImageUrl] = useState<string | null>(null);
+  const [lookKey, setLookKey] = useState<string>(""); // selection the look image matches
+  const [applyingLook, setApplyingLook] = useState(false);
+  const [lookError, setLookError] = useState<string | null>(null);
+
   const [progress, setProgress] = useState<LangProgress[]>([]);
   const [batchError, setBatchError] = useState<string | null>(null);
 
@@ -72,8 +83,53 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
   const charCount = script.trim().length;
   const estSeconds = estimateDurationSeconds(script);
 
+  const hasLookSelection = Boolean(wardrobeId && backgroundId);
+  const currentLookKey = `${wardrobeId}|${backgroundId}`;
+  const lookReady = lookImageUrl !== null && lookKey === currentLookKey;
+
   const canGenerate =
     Boolean(selectedAvatar?.hasVoice) && charCount > 0 && languages.length > 0;
+
+  function selectAvatar(a: StudioAvatar) {
+    setAvatarId(a.id);
+    // Pre-select the avatar's default language if nothing chosen yet.
+    setLanguages((prev) =>
+      prev.length === 0 && studioLanguage(a.defaultLanguage) ? [a.defaultLanguage] : prev
+    );
+    // Reset the look — presets are per avatar.
+    setWardrobeId("");
+    setBackgroundId("");
+    setLookImageUrl(null);
+    setLookKey("");
+    setLookError(null);
+  }
+
+  async function applyLook(): Promise<string> {
+    if (!selectedAvatar || !hasLookSelection) throw new Error("Select a look first.");
+    setApplyingLook(true);
+    setLookError(null);
+    try {
+      const res = await fetch("/api/studio/look", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          avatarId: selectedAvatar.id,
+          wardrobePresetId: wardrobeId,
+          backgroundPresetId: backgroundId,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Could not apply the look.");
+      setLookImageUrl(json.imageUrl);
+      setLookKey(currentLookKey);
+      return json.imageUrl as string;
+    } catch (e) {
+      setLookError(e instanceof Error ? e.message : "Could not apply the look.");
+      throw e;
+    } finally {
+      setApplyingLook(false);
+    }
+  }
 
   const results = useMemo(
     () => progress.filter((p) => p.step === "done" && p.videoUrl),
@@ -114,11 +170,15 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
   // Submit one render and poll it to completion. Returns the finished video
   // URL, or throws on a non-transient failure. Each poll is a fast, independent
   // request, so no serverless function ever blocks on the render.
-  async function submitAndPoll(avatarId: string, audioUrl: string): Promise<string> {
+  async function submitAndPoll(
+    avatarId: string,
+    audioUrl: string,
+    imageUrl: string | null
+  ): Promise<string> {
     const sRes = await fetch("/api/studio/video/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ avatarId, audioUrl }),
+      body: JSON.stringify({ avatarId, audioUrl, imageUrl }),
     });
     const sJson = await sRes.json();
     if (!sRes.ok) throw new Error(sJson.error ?? "Could not start video.");
@@ -143,14 +203,19 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
 
   // Wraps submitAndPoll with auto-resubmit on transient WaveSpeed startup
   // errors (a fresh submit usually hits a healthy worker).
-  async function generateVideo(avatarId: string, audioUrl: string, code: string): Promise<string> {
+  async function generateVideo(
+    avatarId: string,
+    audioUrl: string,
+    imageUrl: string | null,
+    code: string
+  ): Promise<string> {
     let lastError = "";
     for (let attempt = 1; attempt <= MAX_VIDEO_ATTEMPTS; attempt++) {
       try {
         if (attempt > 1) {
           setStep(code, { step: "video", note: `retry ${attempt}/${MAX_VIDEO_ATTEMPTS}…` });
         }
-        return await submitAndPoll(avatarId, audioUrl);
+        return await submitAndPoll(avatarId, audioUrl, imageUrl);
       } catch (e) {
         lastError = e instanceof Error ? e.message : "Video failed.";
         if (attempt < MAX_VIDEO_ATTEMPTS && isTransientVideoError(lastError)) {
@@ -163,7 +228,7 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
     throw new Error(`Video: ${lastError}`);
   }
 
-  async function runLanguage(code: string, jobId: string) {
+  async function runLanguage(code: string, jobId: string, lookUrl: string | null) {
     const avatar = selectedAvatar!;
     try {
       // a) Translate.
@@ -193,9 +258,9 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
       //    WaveSpeed startup failures. No single request waits for the render;
       //    the client just keeps polling each fast status call.
       setStep(code, { step: "video", note: undefined });
-      const finishedVideoUrl = await generateVideo(avatar.id, audioUrl, code);
+      const finishedVideoUrl = await generateVideo(avatar.id, audioUrl, lookUrl, code);
 
-      // d) Finalize (download → store → DB row).
+      // d) Finalize (download → burn overlay → store → DB row).
       const fRes = await fetch("/api/studio/finalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -207,6 +272,9 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
           originalScript: script,
           durationSeconds,
           videoUrl: finishedVideoUrl,
+          wardrobePresetId: hasLookSelection ? wardrobeId : null,
+          backgroundPresetId: hasLookSelection ? backgroundId : null,
+          overlayText: overlayText.trim() || null,
         }),
       });
       const fJson = await fRes.json();
@@ -226,6 +294,19 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
   async function onGenerate() {
     if (!canGenerate || !selectedAvatar) return;
     setBatchError(null);
+
+    // Apply the look ONCE (kontext edit, cached) before the per-language loop,
+    // so the edited image drives every video. Skipped if no look is selected.
+    let lookUrl: string | null = null;
+    if (hasLookSelection) {
+      try {
+        lookUrl = lookReady ? lookImageUrl : await applyLook();
+      } catch {
+        setBatchError("Could not apply the selected look. Adjust it and try again.");
+        return;
+      }
+    }
+
     setPhase("running");
     const jobId =
       typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -235,7 +316,7 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
 
     // Sequential per language (one generation each — important for cost).
     for (const code of languages) {
-      await runLanguage(code, jobId);
+      await runLanguage(code, jobId, lookUrl);
     }
     setPhase("results");
   }
@@ -350,7 +431,7 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
                   type="button"
                   className={`avatar-card${selected ? " selected" : ""}`}
                   disabled={disabled}
-                  onClick={() => setAvatarId(a.id)}
+                  onClick={() => selectAvatar(a)}
                 >
                   {a.thumbnailUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -439,9 +520,94 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
           </p>
         </section>
 
-        {/* STEP 4 — format */}
+        {/* STEP 4 — look (wardrobe + background presets) */}
         <section className="card">
-          <h2>4 · Format</h2>
+          <h2>4 · Look</h2>
+          {!selectedAvatar ? (
+            <p className="muted small">Select an avatar to choose its look.</p>
+          ) : selectedAvatar.wardrobe.length === 0 &&
+            selectedAvatar.background.length === 0 ? (
+            <p className="muted small">
+              No presets for this avatar yet. The raw reference photo will be used.
+            </p>
+          ) : (
+            <>
+              <label htmlFor="wardrobe">Wardrobe</label>
+              <select
+                id="wardrobe"
+                value={wardrobeId}
+                onChange={(e) => {
+                  setWardrobeId(e.target.value);
+                  setLookError(null);
+                }}
+              >
+                <option value="">— none —</option>
+                {selectedAvatar.wardrobe.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+
+              <label htmlFor="background">Background</label>
+              <select
+                id="background"
+                value={backgroundId}
+                onChange={(e) => {
+                  setBackgroundId(e.target.value);
+                  setLookError(null);
+                }}
+              >
+                <option value="">— none —</option>
+                {selectedAvatar.background.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+
+              <p className="muted small">
+                Presets only (predefined). The look is applied to the avatar
+                image before the video — pick one of each, then preview.
+              </p>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  applyLook().catch(() => {});
+                }}
+                disabled={!hasLookSelection || applyingLook}
+              >
+                {applyingLook
+                  ? "Applying look…"
+                  : lookReady
+                    ? "Look applied ✓ — re-preview"
+                    : "Preview look"}
+              </button>
+              {lookError ? <p className="error">{lookError}</p> : null}
+            </>
+          )}
+        </section>
+
+        {/* STEP 5 — on-screen text */}
+        <section className="card">
+          <h2>5 · On-screen text</h2>
+          <input
+            type="text"
+            value={overlayText}
+            onChange={(e) => setOverlayText(e.target.value)}
+            placeholder="Optional caption burned onto the video"
+            maxLength={120}
+          />
+          <p className="muted small">
+            Optional. Burned onto the final video programmatically (free, no AI),
+            with an outline for readability and positioned for the chosen format.
+          </p>
+        </section>
+
+        {/* STEP 6 — format */}
+        <section className="card">
+          <h2>6 · Format</h2>
           <div className="chips">
             {ASPECT_RATIOS.map((r) => (
               <button
@@ -474,7 +640,13 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
       <div className="studio-col">
         <section className="card">
           <h2>Preview</h2>
-          {selectedAvatar?.thumbnailUrl ? (
+          {lookReady && lookImageUrl ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={lookImageUrl} alt="Applied look" className="preview-image" />
+              <p className="ok small">✓ Look applied — this image drives the video.</p>
+            </>
+          ) : selectedAvatar?.thumbnailUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={selectedAvatar.thumbnailUrl}

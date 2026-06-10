@@ -48,6 +48,13 @@ export function estimateDurationSeconds(text: string): number {
   return Math.max(1, Math.round(text.trim().length / CHARS_PER_SECOND));
 }
 
+// Wardrobe / background presets (MTS-defined, predefined sets only).
+export type Preset = {
+  id: string;
+  label: string;
+  params: { instruction?: string } | null;
+};
+
 // Localised default test phrases so the preview actually speaks the chosen
 // language (eleven_multilingual_v2 detects language from the input text).
 export const VOICE_TEST_PHRASES: Record<string, string> = {

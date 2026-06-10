@@ -14,9 +14,10 @@ export async function POST(request: NextRequest) {
   const ctx = await authedContext();
   if (!ctx) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
-  const { avatarId, audioUrl } = (await request.json().catch(() => ({}))) as {
+  const { avatarId, audioUrl, imageUrl } = (await request.json().catch(() => ({}))) as {
     avatarId?: string;
     audioUrl?: string;
+    imageUrl?: string;
   };
   if (!avatarId || !audioUrl) {
     return NextResponse.json({ error: "Missing video parameters." }, { status: 400 });
@@ -35,24 +36,28 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
-  const firstPhoto = avatar.reference_photos?.[0];
-  if (!firstPhoto) {
-    return NextResponse.json(
-      { error: "Avatar has no reference photo to drive the video." },
-      { status: 400 }
-    );
-  }
-
-  const { data: signed } = await ctx.supabase.storage
-    .from(REFERENCE_PHOTOS_BUCKET)
-    .createSignedUrl(firstPhoto, 3600);
-  if (!signed?.signedUrl) {
-    return NextResponse.json({ error: "Could not read the reference photo." }, { status: 500 });
+  // Use the edited look image when provided; otherwise the raw reference photo.
+  let faceImageUrl = imageUrl;
+  if (!faceImageUrl) {
+    const firstPhoto = avatar.reference_photos?.[0];
+    if (!firstPhoto) {
+      return NextResponse.json(
+        { error: "Avatar has no reference photo to drive the video." },
+        { status: 400 }
+      );
+    }
+    const { data: signed } = await ctx.supabase.storage
+      .from(REFERENCE_PHOTOS_BUCKET)
+      .createSignedUrl(firstPhoto, 3600);
+    if (!signed?.signedUrl) {
+      return NextResponse.json({ error: "Could not read the reference photo." }, { status: 500 });
+    }
+    faceImageUrl = signed.signedUrl;
   }
 
   try {
     const predictionId = await submitInfiniteTalk({
-      imageUrl: signed.signedUrl,
+      imageUrl: faceImageUrl,
       audioUrl,
     });
     return NextResponse.json({ predictionId, status: "processing" });
