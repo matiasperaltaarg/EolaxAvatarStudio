@@ -14,6 +14,7 @@ import {
   confirmRights,
   deactivateAvatar,
   deleteAvatar,
+  deletePhoto,
   updateAvatar,
 } from "../actions";
 import Toast from "./Toast";
@@ -86,8 +87,17 @@ export default async function AvatarDetailPage({
         ) : (
           <div className="photo-grid">
             {photoUrls.map((p) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img key={p.path} src={p.url} alt="Reference" className="photo" />
+              <div key={p.path} className="photo-cell">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p.url} alt="Reference" className="photo" />
+                <form action={deletePhoto}>
+                  <input type="hidden" name="id" value={avatar.id} />
+                  <input type="hidden" name="path" value={p.path} />
+                  <button className="photo-delete" type="submit" title="Delete photo">
+                    ✕
+                  </button>
+                </form>
+              </div>
             ))}
           </div>
         )}

@@ -473,3 +473,76 @@ code {
   background: #000;
   margin-bottom: 8px;
 }
+
+/* Photo delete (avatar detail) ------------------------------------------- */
+.photo-cell {
+  position: relative;
+}
+
+.photo-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+  border: 1px solid var(--border);
+}
+
+.photo-delete:hover {
+  background: #c0392b;
+}
+
+/* Gallery ----------------------------------------------------------------- */
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.gallery-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Credits ----------------------------------------------------------------- */
+.balance-card {
+  text-align: center;
+}
+
+.balance-big {
+  font-size: 40px;
+  font-weight: 700;
+  color: #7ef0a0;
+}
+
+.pack-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pack-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0b0b0f;
+  font-size: 14px;
+}
+
+.pack-row.expired {
+  opacity: 0.5;
+}

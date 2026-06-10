@@ -56,7 +56,13 @@ const POLL_INTERVAL_MS = 5000;
 const MAX_POLLS = 240; // per attempt: 240 × 5s = 20 min of patience
 const MAX_VIDEO_ATTEMPTS = 3;
 
-export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
+export default function Studio({
+  avatars,
+  balanceSeconds,
+}: {
+  avatars: StudioAvatar[];
+  balanceSeconds: number;
+}) {
   const [phase, setPhase] = useState<"form" | "running" | "results">("form");
 
   const [avatarId, setAvatarId] = useState<string | null>(null);
@@ -87,8 +93,16 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
   const currentLookKey = `${wardrobeId}|${backgroundId}`;
   const lookReady = lookImageUrl !== null && lookKey === currentLookKey;
 
+  // Credit pre-check: estimate seconds × number of languages. The ACTUAL
+  // duration is debited server-side on completion.
+  const estimatedCost = estSeconds * languages.length;
+  const enoughCredits = estimatedCost <= balanceSeconds;
+
   const canGenerate =
-    Boolean(selectedAvatar?.hasVoice) && charCount > 0 && languages.length > 0;
+    Boolean(selectedAvatar?.hasVoice) &&
+    charCount > 0 &&
+    languages.length > 0 &&
+    enoughCredits;
 
   function selectAvatar(a: StudioAvatar) {
     setAvatarId(a.id);
@@ -626,6 +640,28 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
           </p>
         </section>
 
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <span className="muted small">Credit balance</span>
+            <span className="small">
+              <strong>{balanceSeconds}s</strong> available
+            </span>
+          </div>
+          {languages.length > 0 ? (
+            <div className="row" style={{ justifyContent: "space-between" }}>
+              <span className="muted small">
+                Estimated cost ({languages.length} ×{" "}
+                {languages.length > 0 ? estSeconds : 0}s)
+              </span>
+              <span className="small">~{estimatedCost}s</span>
+            </div>
+          ) : null}
+          <p className="muted small" style={{ margin: "6px 0 0" }}>
+            Each completed video (including regenerations) is charged its actual
+            duration.
+          </p>
+        </div>
+
         <button type="button" onClick={onGenerate} disabled={!canGenerate}>
           Generate {languages.length > 0 ? `${languages.length} ` : ""}video
           {languages.length === 1 ? "" : "s"}
@@ -634,6 +670,11 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
           <p className="muted small">Select an avatar to begin.</p>
         ) : !selectedAvatar.hasVoice ? (
           <p className="muted small">This avatar has no cloned voice.</p>
+        ) : charCount > 0 && languages.length > 0 && !enoughCredits ? (
+          <p className="error">
+            Not enough credits — {estimatedCost}s needed, {balanceSeconds}s
+            available. Contact MTS to recharge.
+          </p>
         ) : null}
       </div>
 

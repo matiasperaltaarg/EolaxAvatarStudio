@@ -156,6 +156,42 @@ export async function addPhotos(formData: FormData) {
   redirect(`/avatars/${id}?ok=${encodeURIComponent("Photos added.")}`);
 }
 
+// Delete a single reference photo (lets Eolax swap an avatar's photo). An
+// active avatar must keep at least one photo.
+export async function deletePhoto(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  const path = String(formData.get("path") ?? "");
+  if (!id || !path) redirect("/avatars");
+
+  const supabase = await createClient();
+  const { data: avatar } = await supabase
+    .from("avatars")
+    .select("status, reference_photos")
+    .eq("id", id)
+    .single();
+
+  const photos: string[] = avatar?.reference_photos ?? [];
+  if (!photos.includes(path)) {
+    redirect(`/avatars/${id}?error=${encodeURIComponent("Photo not found.")}`);
+  }
+  if (avatar?.status === "active" && photos.length <= 1) {
+    redirect(
+      `/avatars/${id}?error=${encodeURIComponent(
+        "An active avatar must keep at least one reference photo. Set it to draft first."
+      )}`
+    );
+  }
+
+  await supabase.storage.from(REFERENCE_PHOTOS_BUCKET).remove([path]);
+  await supabase
+    .from("avatars")
+    .update({ reference_photos: photos.filter((p) => p !== path) })
+    .eq("id", id);
+
+  revalidatePath(`/avatars/${id}`);
+  redirect(`/avatars/${id}?ok=${encodeURIComponent("Photo deleted.")}`);
+}
+
 // ---------------------------------------------------------------------------
 // Rights gate: confirm rights, activate, deactivate
 // ---------------------------------------------------------------------------

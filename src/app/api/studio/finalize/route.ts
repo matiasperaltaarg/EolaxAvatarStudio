@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { authedContext } from "@/lib/studio-auth";
 import { GENERATED_CONTENT_BUCKET } from "@/lib/avatars";
 import { burnCaption } from "@/lib/overlay";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { debitForVideo, secondsToCharge } from "@/lib/credits";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -99,7 +101,20 @@ export async function POST(request: NextRequest) {
       .single();
     if (insErr || !video) throw new Error(insErr?.message ?? "Could not save the video.");
 
-    // 4. Return a signed URL for immediate playback/download.
+    // 4. Debit credits for this completed video (server-side, exactly once).
+    //    A failed generation never reaches here, so it is never charged.
+    let secondsCharged = 0;
+    try {
+      const admin = createAdminClient();
+      const charge = secondsToCharge(durationSeconds);
+      const result = await debitForVideo(admin, ctx.accountId, video.id, charge);
+      secondsCharged = result.secondsCharged;
+    } catch (e) {
+      // Don't fail the whole generation if the debit hiccups — log loudly.
+      console.error(`[credits] debit failed for video ${video.id}: ${String(e)}`);
+    }
+
+    // 5. Return a signed URL for immediate playback/download.
     const { data: signed } = await ctx.supabase.storage
       .from(GENERATED_CONTENT_BUCKET)
       .createSignedUrl(path, 3600);
@@ -108,6 +123,7 @@ export async function POST(request: NextRequest) {
       videoId: video.id,
       videoPath: path,
       videoUrl: signed?.signedUrl ?? null,
+      secondsCharged,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not finalize the video.";

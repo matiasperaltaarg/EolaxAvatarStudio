@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccountId } from "@/lib/account";
 import { signOut } from "@/app/login/actions";
 import { REFERENCE_PHOTOS_BUCKET, type Avatar } from "@/lib/avatars";
+import { getBalanceSeconds } from "@/lib/credits";
 import Studio, { type StudioAvatar } from "./Studio";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +63,8 @@ export default async function StudioPage() {
     })
   );
 
+  const balanceSeconds = await getBalanceSeconds(supabase, accountId);
+
   return (
     <main className="container wide">
       <header className="page-header">
@@ -72,15 +75,17 @@ export default async function StudioPage() {
           </p>
         </div>
         <div className="row">
+          <Link href="/gallery">
+            <button className="secondary" type="button">Gallery</button>
+          </Link>
+          <Link href="/credits">
+            <button className="secondary" type="button">Credits</button>
+          </Link>
           <Link href="/avatars">
-            <button className="secondary" type="button">
-              Avatars
-            </button>
+            <button className="secondary" type="button">Avatars</button>
           </Link>
           <form action={signOut}>
-            <button className="secondary" type="submit">
-              Sign out
-            </button>
+            <button className="secondary" type="submit">Sign out</button>
           </form>
         </div>
       </header>
@@ -96,7 +101,7 @@ export default async function StudioPage() {
           </Link>
         </div>
       ) : (
-        <Studio avatars={studioAvatars} />
+        <Studio avatars={studioAvatars} balanceSeconds={balanceSeconds} />
       )}
     </main>
   );
