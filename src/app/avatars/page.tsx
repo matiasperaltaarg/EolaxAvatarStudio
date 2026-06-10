@@ -33,6 +33,11 @@ export default async function AvatarsPage() {
           </p>
         </div>
         <div className="row">
+          <Link href="/studio">
+            <button className="secondary" type="button">
+              Studio
+            </button>
+          </Link>
           <Link href="/avatars/new">
             <button type="button">+ New avatar</button>
           </Link>
