@@ -4,11 +4,17 @@
 const API_BASE = "https://api.replicate.com/v1";
 
 // Lip-sync video model on Replicate: zsxkib/multitalk (MeiGen-AI). For our
-// single-speaker case we pass one image + one audio. Overridable via env in
-// case the slug/version changes; format "owner/name" (latest version) or
-// "owner/name:version" to pin. Default uses the model-name endpoint so we
-// always run the model's CURRENT latest version (no stale version hash).
-const MODEL = process.env.REPLICATE_VIDEO_MODEL ?? "zsxkib/multitalk";
+// single-speaker case we pass one image + one audio.
+//
+// zsxkib/multitalk does NOT resolve on the model-name prediction endpoint
+// (/v1/models/{owner}/{name}/predictions → 404), so we use the standard
+// /v1/predictions endpoint with a PINNED version hash.
+//
+// Override via REPLICATE_VIDEO_MODEL as "owner/name:version" (the version
+// hash is what's actually used). Defaults to the pinned version below so it
+// works out of the box.
+const DEFAULT_VERSION = "0bd2390c40618c910ffc345b36c8fd218fd8fa59c9124aa641fea443fa203b44";
+const MODEL = process.env.REPLICATE_VIDEO_MODEL ?? `zsxkib/multitalk:${DEFAULT_VERSION}`;
 
 // Thrown when Replicate reports the model/version is missing (404), so the
 // route can show a clean "video model unavailable" message.
@@ -64,18 +70,20 @@ export async function startLipsyncVideo(input: {
     },
   };
 
-  // If a pinned version is supplied (owner/name:version), use the generic
-  // /predictions endpoint; otherwise run the model's latest version via the
-  // model-name endpoint (avoids stale version hashes — itself a 404 cause).
+  // Use the standard /v1/predictions endpoint with a pinned version hash
+  // (the model-name endpoint 404s for this model). When an "owner/name:version"
+  // value is supplied, the version hash after the colon is what's used.
   const colon = MODEL.indexOf(":");
   let url: string;
-  let versionNote = "latest";
+  let versionNote: string;
   if (colon >= 0) {
     url = `${API_BASE}/predictions`;
     body.version = MODEL.slice(colon + 1);
     versionNote = MODEL.slice(colon + 1);
   } else {
+    // Bare slug with no version — fall back to the model-name endpoint.
     url = `${API_BASE}/models/${MODEL}/predictions`;
+    versionNote = "model-name-endpoint";
   }
 
   const res = await fetch(url, {
