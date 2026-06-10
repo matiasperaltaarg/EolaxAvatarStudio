@@ -6,6 +6,12 @@ const API_BASE = "https://api.elevenlabs.io/v1";
 // Multilingual model for ES/EN/PT/IT support (CLAUDE.md §2).
 export const ELEVENLABS_MODEL_ID = "eleven_multilingual_v2";
 
+// High-quality TTS output: 44.1 kHz, 128 kbps MP3 (clean, non-choppy, and
+// supported on every plan). Override to mp3_44100_192 on Creator+ tiers for
+// 192 kbps. This is what InfiniteTalk expects (standard 44.1 kHz MP3); it
+// resamples internally, so no sample-rate param is needed on its side.
+const OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT ?? "mp3_44100_128";
+
 function getApiKey(): string {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) {
@@ -62,7 +68,7 @@ export async function textToSpeech(
   voiceId: string,
   text: string
 ): Promise<ArrayBuffer> {
-  const res = await fetch(`${API_BASE}/text-to-speech/${voiceId}`, {
+  const res = await fetch(`${API_BASE}/text-to-speech/${voiceId}?output_format=${OUTPUT_FORMAT}`, {
     method: "POST",
     headers: {
       "xi-api-key": getApiKey(),
@@ -89,14 +95,17 @@ export async function textToSpeechWithDuration(
   voiceId: string,
   text: string
 ): Promise<{ audio: Buffer; durationSeconds: number }> {
-  const res = await fetch(`${API_BASE}/text-to-speech/${voiceId}/with-timestamps`, {
-    method: "POST",
-    headers: {
-      "xi-api-key": getApiKey(),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ text, model_id: ELEVENLABS_MODEL_ID }),
-  });
+  const res = await fetch(
+    `${API_BASE}/text-to-speech/${voiceId}/with-timestamps?output_format=${OUTPUT_FORMAT}`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": getApiKey(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text, model_id: ELEVENLABS_MODEL_ID }),
+    }
+  );
 
   if (!res.ok) {
     throw new Error(await readError(res, "Voice generation failed"));

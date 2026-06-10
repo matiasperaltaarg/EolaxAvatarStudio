@@ -7,9 +7,10 @@ const SUBMIT_URL = "https://api.wavespeed.ai/api/v3/wavespeed-ai/infinitetalk";
 const RESULT_URL = (id: string) =>
   `https://api.wavespeed.ai/api/v3/predictions/${id}/result`;
 
-// 480p keeps cost down for iteration; set WAVESPEED_RESOLUTION=720p to match
-// the ~$0.06/sec cost model for production.
-const RESOLUTION = process.env.WAVESPEED_RESOLUTION ?? "480p";
+// 720p for production sharpness (~$0.06/sec). Set WAVESPEED_RESOLUTION=480p
+// to halve cost during iteration. InfiniteTalk exposes no other quality knobs
+// (no sampling-steps / audio sample-rate params).
+const RESOLUTION = process.env.WAVESPEED_RESOLUTION ?? "720p";
 
 export type VideoStatus = "processing" | "succeeded" | "failed";
 
