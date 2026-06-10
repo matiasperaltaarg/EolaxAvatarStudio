@@ -1,18 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authedContext } from "@/lib/studio-auth";
 import { REFERENCE_PHOTOS_BUCKET } from "@/lib/avatars";
-import { startInfiniteTalk } from "@/lib/replicate";
+import { VideoModelUnavailableError, startLipsyncVideo } from "@/lib/replicate";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 // POST /api/studio/video/start  { avatarId, audioUrl }
-// Starts an InfiniteTalk lip-sync prediction from the avatar's first reference
+// Starts a MultiTalk lip-sync prediction from the avatar's first reference
 // photo + the generated audio. Returns the prediction id for client polling.
 //
-// Note: InfiniteTalk renders at its native ratio (480p/720p) and center-crops
-// the image; true 9:16 / 1:1 / 16:9 cropping is a Phase 6 polish item. The
-// chosen aspect_ratio is still recorded on the video row.
+// Note: the model renders at its native ratio and center-crops the image;
+// true 9:16 / 1:1 / 16:9 cropping is a Phase 6 polish item. The chosen
+// aspect_ratio is still recorded on the video row.
 export async function POST(request: NextRequest) {
   const ctx = await authedContext();
   if (!ctx) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -54,13 +54,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const prediction = await startInfiniteTalk({
+    const prediction = await startLipsyncVideo({
       imageUrl: signed.signedUrl,
       audioUrl,
-      resolution: "480p",
     });
     return NextResponse.json({ predictionId: prediction.id, status: prediction.status });
   } catch (e) {
+    if (e instanceof VideoModelUnavailableError) {
+      return NextResponse.json(
+        { error: "Video model unavailable. Please try again later." },
+        { status: 503 }
+      );
+    }
     const message = e instanceof Error ? e.message : "Could not start video generation.";
     return NextResponse.json({ error: message }, { status: 502 });
   }

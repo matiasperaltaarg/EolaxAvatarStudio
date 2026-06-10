@@ -3,10 +3,21 @@
 
 const API_BASE = "https://api.replicate.com/v1";
 
-// InfiniteTalk model on Replicate. Overridable via env in case the slug or
-// version changes — the deploy-first workflow can then fix it without a code
-// change. Format: "owner/name" (latest version) or "owner/name:version".
-const MODEL = process.env.REPLICATE_INFINITETALK_MODEL ?? "zsxkib/infinite-talk";
+// Lip-sync video model on Replicate: zsxkib/multitalk (MeiGen-AI). For our
+// single-speaker case we pass one image + one audio. Overridable via env in
+// case the slug/version changes; format "owner/name" (latest version) or
+// "owner/name:version" to pin. Default uses the model-name endpoint so we
+// always run the model's CURRENT latest version (no stale version hash).
+const MODEL = process.env.REPLICATE_VIDEO_MODEL ?? "zsxkib/multitalk";
+
+// Thrown when Replicate reports the model/version is missing (404), so the
+// route can show a clean "video model unavailable" message.
+export class VideoModelUnavailableError extends Error {
+  constructor(public modelId: string) {
+    super("video model unavailable");
+    this.name = "VideoModelUnavailableError";
+  }
+}
 
 export type PredictionStatus =
   | "starting"
@@ -33,30 +44,36 @@ function getToken(): string {
   return token;
 }
 
-// Start an InfiniteTalk prediction. Returns immediately with the prediction
-// id; poll getPrediction() for completion (the client drives the polling).
-export async function startInfiniteTalk(input: {
+// Start a lip-sync prediction (single speaker = one image + one audio).
+// Returns immediately with the prediction id; poll getPrediction() for
+// completion (the client drives the polling).
+export async function startLipsyncVideo(input: {
   imageUrl: string;
   audioUrl: string;
-  resolution?: "480p" | "720p";
   prompt?: string;
 }): Promise<Prediction> {
+  // zsxkib/multitalk input schema: image, first_audio (+ optional
+  // second_audio for multi-person, which we don't use), prompt.
   const body: Record<string, unknown> = {
     input: {
       image: input.imageUrl,
-      audio: input.audioUrl,
-      resolution: input.resolution ?? "480p",
-      prompt: input.prompt ?? "A person talking directly to the camera.",
+      first_audio: input.audioUrl,
+      prompt:
+        input.prompt ??
+        "A person looking at the camera and talking, with natural facial expressions.",
     },
   };
 
   // If a pinned version is supplied (owner/name:version), use the generic
-  // /predictions endpoint; otherwise run the model's latest version.
+  // /predictions endpoint; otherwise run the model's latest version via the
+  // model-name endpoint (avoids stale version hashes — itself a 404 cause).
   const colon = MODEL.indexOf(":");
   let url: string;
+  let versionNote = "latest";
   if (colon >= 0) {
     url = `${API_BASE}/predictions`;
     body.version = MODEL.slice(colon + 1);
+    versionNote = MODEL.slice(colon + 1);
   } else {
     url = `${API_BASE}/models/${MODEL}/predictions`;
   }
@@ -72,6 +89,14 @@ export async function startInfiniteTalk(input: {
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
+    // Log the full identifier/endpoint server-side for debugging.
+    console.error(
+      `[replicate] start failed: status=${res.status} model="${MODEL}" ` +
+        `version="${versionNote}" url="${url}" detail=${detail || res.statusText}`
+    );
+    if (res.status === 404) {
+      throw new VideoModelUnavailableError(MODEL);
+    }
     throw new Error(`Replicate start failed (${res.status}): ${detail || res.statusText}`);
   }
 
