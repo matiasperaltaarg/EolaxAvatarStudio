@@ -5,6 +5,7 @@ import { getAccountId } from "@/lib/account";
 import { signOut } from "@/app/login/actions";
 import { PACKS, getBalanceSeconds, type CreditPack } from "@/lib/credits";
 import { languageLabel } from "@/lib/avatars";
+import BrandMark from "@/app/BrandMark";
 
 export const dynamic = "force-dynamic";
 
@@ -50,41 +51,45 @@ export default async function CreditsPage() {
 
   return (
     <main className="container wide">
+      <div className="brand-header">
+        <BrandMark />
+        <div className="row">
+          <Link href="/studio"><button className="secondary" type="button">Estudio</button></Link>
+          <Link href="/gallery"><button className="secondary" type="button">Galería</button></Link>
+          <Link href="/credits"><button className="secondary" type="button">Créditos</button></Link>
+          <Link href="/avatars"><button className="secondary" type="button">Avatares</button></Link>
+          <form action={signOut}>
+            <button className="secondary" type="submit">Salir</button>
+          </form>
+        </div>
+      </div>
+
       <header className="page-header">
         <div>
-          <h1 style={{ margin: 0 }}>Credits</h1>
+          <h1 style={{ margin: 0 }}>Créditos</h1>
           <p className="muted" style={{ margin: "4px 0 0" }}>
-            Credits are measured in seconds of generated video.
+            Los créditos se miden en segundos de vídeo generado.
           </p>
-        </div>
-        <div className="row">
-          <Link href="/studio">
-            <button className="secondary" type="button">Studio</button>
-          </Link>
-          <Link href="/gallery">
-            <button className="secondary" type="button">Gallery</button>
-          </Link>
-          <form action={signOut}>
-            <button className="secondary" type="submit">Sign out</button>
-          </form>
         </div>
       </header>
 
       <section className="card balance-card">
         <div className="balance-big">{mmss(balance)}</div>
-        <div className="muted">available ({balance}s)</div>
+        <div className="muted">disponibles ({balance}s)</div>
       </section>
 
       <p className="muted small">
-        No monthly fee. Each pack is valid for 6 months. Every generation
-        (including regenerations) uses credits. Failed generations are not charged.
+        Sin cuota mensual. Cada pack es válido durante 6 meses. Cada generación
+        (incluidas las regeneraciones) consume créditos. Las generaciones
+        fallidas no se cobran.
       </p>
 
       <section className="card">
         <h2>Packs</h2>
         {packs.length === 0 ? (
           <p className="muted">
-            No packs yet. Contact MTS to add a credit pack to this account.
+            Aún no hay packs. Contacta con MTS para añadir un pack de créditos a
+            esta cuenta.
           </p>
         ) : (
           <ul className="pack-list">
@@ -96,13 +101,13 @@ export default async function CreditsPage() {
                   <div>
                     <strong>{PACKS[p.pack_type]?.label ?? p.pack_type}</strong>
                     <span className="muted small">
-                      {" "}· {remaining}s left of {p.seconds_total}s
+                      {" "}· {remaining}s de {p.seconds_total}s
                     </span>
                   </div>
                   <div className="muted small">
                     {expired
-                      ? `Expired ${new Date(p.expires_at).toLocaleDateString()}`
-                      : `Expires ${new Date(p.expires_at).toLocaleDateString()}`}
+                      ? `Caducó el ${new Date(p.expires_at).toLocaleDateString()}`
+                      : `Caduca el ${new Date(p.expires_at).toLocaleDateString()}`}
                   </div>
                 </li>
               );
@@ -112,9 +117,9 @@ export default async function CreditsPage() {
       </section>
 
       <section className="card">
-        <h2>Recent consumption</h2>
+        <h2>Consumo reciente</h2>
         {log.length === 0 ? (
-          <p className="muted">No generations charged yet.</p>
+          <p className="muted">Aún no se ha cobrado ninguna generación.</p>
         ) : (
           <ul className="pack-list">
             {log.map((row, i) => (

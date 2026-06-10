@@ -1,7 +1,11 @@
-// Server-only programmatic caption burner. Uses the self-contained
-// ffmpeg-static binary (no system install) + a vendored TTF to draw the
-// on-screen text onto the finished video via the drawtext filter. This is
-// the cheap, real-time, no-extra-model-cost overlay (CLAUDE.md §4).
+// Server-only video mark burner. Uses the self-contained ffmpeg-static binary
+// (no system install) + a vendored TTF to burn, in ONE pass:
+//   1) the mandatory "Generated with AI" disclosure watermark (every video,
+//      not removable by the user), and
+//   2) the optional on-screen text caption (Phase 4).
+// Both are programmatic (no extra model cost). The disclosure mark is required
+// by the rights agreement, so this step is mandatory — callers must treat a
+// failure here as a failed generation rather than shipping an unmarked video.
 
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
@@ -11,51 +15,67 @@ import ffmpegStatic from "ffmpeg-static";
 
 const FONT_PATH = path.join(process.cwd(), "src/assets/fonts/Roboto-Bold.ttf");
 
-// Vertical placement per aspect ratio (expression over input height `h` and
-// the rendered text height `text_h`). Kept in the lower third, clear of edges.
-function yExpr(aspectRatio: string): string {
+// AI-disclosure text burned into every video. Configurable for future locales.
+export const AI_DISCLOSURE_TEXT = process.env.AI_DISCLOSURE_TEXT ?? "Generado con IA";
+
+// Vertical placement of the optional caption per aspect ratio (expression over
+// input height `h` and rendered text height `text_h`). Lower third, clear of
+// edges and of the bottom watermark zone.
+function captionY(aspectRatio: string): string {
   switch (aspectRatio) {
     case "9:16":
-      return "h*0.80-text_h/2";
+      return "h*0.74-text_h/2";
     case "1:1":
-      return "h*0.84-text_h/2";
+      return "h*0.78-text_h/2";
     case "16:9":
     default:
-      return "h*0.85-text_h/2";
+      return "h*0.80-text_h/2";
   }
 }
 
-// Burns `text` onto the MP4 in `input`. Returns a new MP4 buffer. Throws on
-// any ffmpeg error so the caller can fall back to the original video.
-export async function burnCaption(
+// Burns the AI disclosure mark (always) plus the optional caption. Returns a
+// new MP4 buffer. Throws if ffmpeg fails after a retry.
+export async function burnVideoMarks(
   input: Uint8Array,
-  text: string,
-  aspectRatio: string
+  opts: { caption?: string; aspectRatio: string }
 ): Promise<Buffer> {
   if (!ffmpegStatic) throw new Error("ffmpeg binary not available.");
 
-  const dir = await mkdtemp(path.join(tmpdir(), "overlay-"));
+  const dir = await mkdtemp(path.join(tmpdir(), "marks-"));
   const inPath = path.join(dir, "in.mp4");
   const outPath = path.join(dir, "out.mp4");
-  const txtPath = path.join(dir, "caption.txt");
+  const badgePath = path.join(dir, "badge.txt");
+  const capPath = path.join(dir, "caption.txt");
 
   try {
     await writeFile(inPath, input);
-    // Use textfile to avoid drawtext escaping pitfalls with the user's text.
-    await writeFile(txtPath, text);
+    await writeFile(badgePath, AI_DISCLOSURE_TEXT);
 
-    const drawtext =
-      `drawtext=fontfile=${FONT_PATH}:textfile=${txtPath}:reload=0:` +
-      `fontcolor=white:fontsize=28:borderw=2:bordercolor=black@0.9:` +
-      `box=1:[email protected]:boxborderw=12:line_spacing=6:` +
-      `x=(w-text_w)/2:y=${yExpr(aspectRatio)}`;
+    // Disclosure watermark — top-right corner, subtle but legible, not removable.
+    const watermark =
+      `drawtext=fontfile=${FONT_PATH}:textfile=${badgePath}:reload=0:` +
+      `fontcolor=white@0.95:fontsize=20:borderw=1:bordercolor=black@0.85:` +
+      `box=1:[email protected]:boxborderw=8:x=w-text_w-18:y=18`;
 
-    await runFfmpeg([
+    const filters = [watermark];
+
+    const caption = (opts.caption ?? "").trim();
+    if (caption) {
+      await writeFile(capPath, caption);
+      filters.push(
+        `drawtext=fontfile=${FONT_PATH}:textfile=${capPath}:reload=0:` +
+          `fontcolor=white:fontsize=28:borderw=2:bordercolor=black@0.9:` +
+          `box=1:[email protected]:boxborderw=12:line_spacing=6:` +
+          `x=(w-text_w)/2:y=${captionY(opts.aspectRatio)}`
+      );
+    }
+
+    const args = [
       "-y",
       "-i",
       inPath,
       "-vf",
-      drawtext,
+      filters.join(","),
       "-c:v",
       "libx264",
       "-preset",
@@ -67,7 +87,15 @@ export async function burnCaption(
       "-c:a",
       "copy",
       outPath,
-    ]);
+    ];
+
+    try {
+      await runFfmpeg(args);
+    } catch {
+      // One retry — guards against a transient ffmpeg hiccup without ever
+      // shipping an unmarked video.
+      await runFfmpeg(args);
+    }
 
     return await readFile(outPath);
   } finally {

@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { signIn } from "./actions";
+import BrandMark from "@/app/BrandMark";
+import { BRAND } from "@/lib/brand";
 
 // Reads auth cookies — must be rendered per request, never prerendered.
 export const dynamic = "force-dynamic";
@@ -24,17 +26,21 @@ export default async function LoginPage({
 
   return (
     <main className="container">
+      <div className="login-hero">
+        <BrandMark size="lg" />
+        <p className="tagline">{BRAND.tagline}</p>
+      </div>
       <div className="card">
-        <h1 style={{ marginTop: 0 }}>Eolax Avatar Studio</h1>
-        <p className="muted">Sign in to continue.</p>
+        <h1 style={{ marginTop: 0, fontSize: 18 }}>Iniciar sesión</h1>
+        <p className="muted">Accede para continuar.</p>
 
         {error ? <p className="error">{error}</p> : null}
 
         <form action={signIn}>
-          <label htmlFor="email">Email</label>
+          <label htmlFor="email">Correo electrónico</label>
           <input id="email" name="email" type="email" required autoComplete="email" />
 
-          <label htmlFor="password">Password</label>
+          <label htmlFor="password">Contraseña</label>
           <input
             id="password"
             name="password"
@@ -43,7 +49,7 @@ export default async function LoginPage({
             autoComplete="current-password"
           />
 
-          <button type="submit">Sign in</button>
+          <button type="submit">Entrar</button>
         </form>
       </div>
     </main>

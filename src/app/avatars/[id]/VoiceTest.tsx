@@ -47,13 +47,13 @@ export default function VoiceTest({ avatarId, defaultLanguage }: Props) {
 
   return (
     <section className="card">
-      <h2>Test voice</h2>
+      <h2>Probar voz</h2>
       <p className="muted small">
-        Preview the cloned voice in any language. This is a preview only — no
-        credits are charged.
+        Previsualiza la voz clonada en cualquier idioma. Es solo una vista
+        previa — no consume créditos.
       </p>
 
-      <label htmlFor="vt-language">Language</label>
+      <label htmlFor="vt-language">Idioma</label>
       <select
         id="vt-language"
         value={language}
@@ -67,7 +67,7 @@ export default function VoiceTest({ avatarId, defaultLanguage }: Props) {
         ))}
       </select>
 
-      <label htmlFor="vt-text">Test phrase</label>
+      <label htmlFor="vt-text">Frase de prueba</label>
       <textarea
         id="vt-text"
         rows={3}
@@ -77,7 +77,7 @@ export default function VoiceTest({ avatarId, defaultLanguage }: Props) {
       />
 
       <button type="button" onClick={onGenerate} disabled={loading || !text.trim()}>
-        {loading ? "Generating preview…" : "Generate preview"}
+        {loading ? "Generando vista previa…" : "Generar vista previa"}
       </button>
 
       {error ? <p className="error" style={{ marginTop: 12 }}>{error}</p> : null}

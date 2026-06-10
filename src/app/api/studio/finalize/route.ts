@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authedContext } from "@/lib/studio-auth";
 import { GENERATED_CONTENT_BUCKET } from "@/lib/avatars";
-import { burnCaption } from "@/lib/overlay";
+import { burnVideoMarks } from "@/lib/overlay";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { debitForVideo, secondsToCharge } from "@/lib/credits";
 
@@ -62,17 +62,13 @@ export async function POST(request: NextRequest) {
     if (!res.ok) throw new Error(`Could not download generated video (${res.status}).`);
     let bytes: Uint8Array = Buffer.from(await res.arrayBuffer());
 
-    // 2. Burn the on-screen text overlay (programmatic, no model cost). If
-    //    ffmpeg fails for any reason, fall back to the un-captioned video so
-    //    the generation never fails on the overlay step.
+    // 2. Burn the mandatory "Generated with AI" disclosure mark (every video)
+    //    plus the optional on-screen caption, in one ffmpeg pass. The
+    //    disclosure is a legal requirement, so a failure here fails the
+    //    generation rather than shipping an unmarked video (no charge — the
+    //    debit happens only after a successful insert below).
     const caption = (overlayText ?? "").trim();
-    if (caption) {
-      try {
-        bytes = await burnCaption(bytes, caption, aspectRatio);
-      } catch (e) {
-        console.error(`[overlay] caption burn failed, using original video: ${String(e)}`);
-      }
-    }
+    bytes = await burnVideoMarks(bytes, { caption, aspectRatio });
 
     // 3. Store it privately.
     const path = `${ctx.accountId}/${avatarId}/${jobId}/video_${language}.mp4`;

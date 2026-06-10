@@ -64,16 +64,18 @@ export default async function AvatarDetailPage({
   return (
     <main className="container wide">
       <p>
-        <Link href="/avatars">← Back to avatars</Link>
+        <Link href="/avatars">← Volver a avatares</Link>
       </p>
 
       <header className="page-header">
         <h1 style={{ margin: 0 }}>{avatar.name}</h1>
         <div className="row">
           <span className={`badge rights-${avatar.rights_confirmed}`}>
-            {avatar.rights_confirmed ? "Rights ✓" : "Rights pending"}
+            {avatar.rights_confirmed ? "Derechos ✓" : "Derechos pendientes"}
           </span>
-          <span className={`badge status-${avatar.status}`}>{avatar.status}</span>
+          <span className={`badge status-${avatar.status}`}>
+            {avatar.status === "active" ? "activo" : "borrador"}
+          </span>
         </div>
       </header>
 
@@ -81,19 +83,19 @@ export default async function AvatarDetailPage({
 
       {/* Reference photos -------------------------------------------------- */}
       <section className="card">
-        <h2>Reference photos</h2>
+        <h2>Fotos de referencia</h2>
         {photoUrls.length === 0 ? (
-          <p className="muted">No photos uploaded.</p>
+          <p className="muted">No hay fotos subidas.</p>
         ) : (
           <div className="photo-grid">
             {photoUrls.map((p) => (
               <div key={p.path} className="photo-cell">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={p.url} alt="Reference" className="photo" />
+                <img src={p.url} alt="Referencia" className="photo" />
                 <form action={deletePhoto}>
                   <input type="hidden" name="id" value={avatar.id} />
                   <input type="hidden" name="path" value={p.path} />
-                  <button className="photo-delete" type="submit" title="Delete photo">
+                  <button className="photo-delete" type="submit" title="Eliminar foto">
                     ✕
                   </button>
                 </form>
@@ -105,36 +107,37 @@ export default async function AvatarDetailPage({
           <input type="hidden" name="id" value={avatar.id} />
           <input name="photos" type="file" accept="image/*" multiple required />
           <button className="secondary" type="submit">
-            Add photos
+            Añadir fotos
           </button>
         </form>
       </section>
 
       {/* Rights gate ------------------------------------------------------- */}
       <section className="card">
-        <h2>Legal rights gate</h2>
+        <h2>Verificación de derechos</h2>
         {avatar.rights_confirmed ? (
           <p className="ok">
-            ✓ Signed image and voice rights are confirmed on file for this
-            person.
+            ✓ Los derechos firmados de imagen y voz están confirmados para esta
+            persona.
           </p>
         ) : (
           <>
             <p className="muted">
-              Before this avatar can be activated, signed rights covering{" "}
-              <strong>both image AND voice</strong> for AI generation must be on
-              file, plus an AI-disclosure agreement.
+              Antes de activar este avatar deben constar los derechos firmados de{" "}
+              <strong>imagen Y voz</strong> para generación con IA, además del
+              acuerdo de divulgación de IA.
             </p>
             <form action={confirmRights}>
               <input type="hidden" name="id" value={avatar.id} />
               <label className="checkbox-row">
                 <input type="checkbox" name="acknowledge" />
                 <span>
-                  I confirm that signed image AND voice rights for AI generation,
-                  and the AI-disclosure agreement, are on file for this person.
+                  Confirmo que constan los derechos firmados de imagen Y voz para
+                  generación con IA, y el acuerdo de divulgación de IA, de esta
+                  persona.
                 </span>
               </label>
-              <button type="submit">Confirm rights on file</button>
+              <button type="submit">Confirmar derechos</button>
             </form>
           </>
         )}
@@ -142,25 +145,26 @@ export default async function AvatarDetailPage({
 
       {/* Status / activation ---------------------------------------------- */}
       <section className="card">
-        <h2>Status</h2>
+        <h2>Estado</h2>
         {avatar.status === "active" ? (
           <>
-            <p className="ok">This avatar is active.</p>
+            <p className="ok">Este avatar está activo.</p>
             <form action={deactivateAvatar}>
               <input type="hidden" name="id" value={avatar.id} />
               <button className="secondary" type="submit">
-                Set back to draft
+                Volver a borrador
               </button>
             </form>
           </>
         ) : avatar.rights_confirmed ? (
           <form action={activateAvatar}>
             <input type="hidden" name="id" value={avatar.id} />
-            <button type="submit">Activate avatar</button>
+            <button type="submit">Activar avatar</button>
           </form>
         ) : (
           <p className="muted">
-            Activation is blocked. Confirm the legal rights above to enable it.
+            La activación está bloqueada. Confirma los derechos legales arriba
+            para habilitarla.
           </p>
         )}
       </section>
@@ -179,14 +183,15 @@ export default async function AvatarDetailPage({
 
       {/* Edit -------------------------------------------------------------- */}
       <section className="card">
-        <h2>Edit</h2>
+        <h2>Editar</h2>
         <p className="muted small">
-          Personality and default language can be edited in any status.
+          La personalidad y el idioma por defecto se pueden editar en cualquier
+          estado.
         </p>
         <form action={updateAvatar}>
           <input type="hidden" name="id" value={avatar.id} />
 
-          <label htmlFor="default_language">Default language</label>
+          <label htmlFor="default_language">Idioma por defecto</label>
           <select
             id="default_language"
             name="default_language"
@@ -199,7 +204,7 @@ export default async function AvatarDetailPage({
             ))}
           </select>
 
-          <label htmlFor="personality_editable">Personality</label>
+          <label htmlFor="personality_editable">Personalidad</label>
           <textarea
             id="personality_editable"
             name="personality_editable"
@@ -207,21 +212,21 @@ export default async function AvatarDetailPage({
             defaultValue={avatar.personality_editable ?? ""}
           />
 
-          <button type="submit">Save changes</button>
+          <button type="submit">Guardar cambios</button>
         </form>
       </section>
 
       {/* Danger zone ------------------------------------------------------- */}
       <section className="card danger">
-        <h2>Delete</h2>
+        <h2>Eliminar</h2>
         <p className="muted small">
-          Current language: {languageLabel(avatar.default_language)}. Deleting
-          removes the avatar and its reference photos permanently.
+          Idioma actual: {languageLabel(avatar.default_language)}. Eliminar borra
+          el avatar y sus fotos de referencia de forma permanente.
         </p>
         <form action={deleteAvatar}>
           <input type="hidden" name="id" value={avatar.id} />
           <button className="danger-btn" type="submit">
-            Delete avatar
+            Eliminar avatar
           </button>
         </form>
       </section>

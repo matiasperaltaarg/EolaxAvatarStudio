@@ -18,11 +18,12 @@ export default function VoiceCloning({ avatarId, hasRights, existingVoiceId }: P
   if (!hasRights) {
     return (
       <section className="card">
-        <h2>Voice cloning</h2>
+        <h2>Clonación de voz</h2>
         <p className="muted">
-          Voice cloning is blocked until signed image <strong>and voice</strong>{" "}
-          rights are confirmed for this avatar (see the legal rights gate above).
-          You cannot clone someone&apos;s voice without confirmed rights.
+          La clonación de voz está bloqueada hasta confirmar los derechos
+          firmados de imagen <strong>y voz</strong> de este avatar (ver
+          verificación de derechos arriba). No se puede clonar la voz de una
+          persona sin derechos confirmados.
         </p>
       </section>
     );
@@ -35,7 +36,7 @@ export default function VoiceCloning({ avatarId, hasRights, existingVoiceId }: P
     const files = data.getAll("audio").filter((f) => f instanceof File && f.size > 0);
     if (files.length === 0) {
       setStatus("error");
-      setMessage("Choose at least one audio file.");
+      setMessage("Elige al menos un archivo de audio.");
       return;
     }
 
@@ -63,20 +64,20 @@ export default function VoiceCloning({ avatarId, hasRights, existingVoiceId }: P
 
   return (
     <section className="card">
-      <h2>Voice cloning</h2>
+      <h2>Clonación de voz</h2>
 
       {voiceId ? (
         <p className="ok">
-          ✓ Cloned voice ready — voice ID: <code>{voiceId}</code>
+          ✓ Voz clonada lista — ID de voz: <code>{voiceId}</code>
         </p>
       ) : (
-        <p className="muted">No cloned voice yet for this avatar.</p>
+        <p className="muted">Este avatar aún no tiene voz clonada.</p>
       )}
 
       <p className="muted small">
-        Upload clean reference speech (mp3 / wav / m4a).{" "}
-        <strong>~30 seconds or more</strong> of clear, single-speaker audio is
-        recommended for a good clone. Re-uploading replaces the existing voice.
+        Sube audio de referencia limpio (mp3 / wav / m4a).{" "}
+        <strong>~30 segundos o más</strong> de audio claro y de una sola persona
+        dan una mejor clonación. Volver a subir reemplaza la voz existente.
       </p>
 
       <form onSubmit={onSubmit}>
@@ -90,15 +91,15 @@ export default function VoiceCloning({ avatarId, hasRights, existingVoiceId }: P
         />
         <button type="submit" disabled={status === "cloning"}>
           {status === "cloning"
-            ? "Cloning voice…"
+            ? "Clonando voz…"
             : voiceId
-              ? "Re-upload & re-clone voice"
-              : "Upload & clone voice"}
+              ? "Volver a subir y reclonar voz"
+              : "Subir y clonar voz"}
         </button>
       </form>
 
       {status === "error" && message ? <p className="error">{message}</p> : null}
-      {status === "done" ? <p className="ok">Voice cloned successfully.</p> : null}
+      {status === "done" ? <p className="ok">Voz clonada correctamente.</p> : null}
     </section>
   );
 }

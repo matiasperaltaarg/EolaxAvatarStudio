@@ -22,22 +22,23 @@ export default async function NewAvatarPage({
   return (
     <main className="container">
       <p>
-        <Link href="/avatars">← Back to avatars</Link>
+        <Link href="/avatars">← Volver a avatares</Link>
       </p>
       <div className="card">
-        <h1 style={{ marginTop: 0 }}>New avatar</h1>
+        <h1 style={{ marginTop: 0 }}>Nuevo avatar</h1>
         <p className="muted">
-          New avatars start as a <strong>draft</strong>. They can only be
-          activated once signed image and voice rights are confirmed.
+          Los avatares nuevos empiezan como <strong>borrador</strong>. Solo
+          pueden activarse cuando se confirman los derechos de imagen y voz
+          firmados.
         </p>
 
         {error ? <p className="error">{error}</p> : null}
 
         <form action={createAvatar} encType="multipart/form-data">
-          <label htmlFor="name">Avatar name</label>
+          <label htmlFor="name">Nombre del avatar</label>
           <input id="name" name="name" type="text" required />
 
-          <label htmlFor="default_language">Default language</label>
+          <label htmlFor="default_language">Idioma por defecto</label>
           <select id="default_language" name="default_language" defaultValue="es">
             {LANGUAGES.map((l) => (
               <option key={l.code} value={l.code}>
@@ -46,15 +47,15 @@ export default async function NewAvatarPage({
             ))}
           </select>
 
-          <label htmlFor="personality_editable">Personality (tone, topics, style)</label>
+          <label htmlFor="personality_editable">Personalidad (tono, temas, estilo)</label>
           <textarea
             id="personality_editable"
             name="personality_editable"
             rows={4}
-            placeholder="e.g. Warm, upbeat brand voice. Talks about product launches and tips."
+            placeholder="p. ej. Voz de marca cercana y enérgica. Habla de lanzamientos y consejos."
           />
 
-          <label htmlFor="photos">Reference photos (1 or more)</label>
+          <label htmlFor="photos">Fotos de referencia (1 o más)</label>
           <input
             id="photos"
             name="photos"
@@ -64,11 +65,11 @@ export default async function NewAvatarPage({
             required
           />
           <p className="muted small">
-            Stored privately in Supabase Storage. Used later for image
-            calibration.
+            Se guardan de forma privada en Supabase Storage. Se usan después para
+            la calibración de imagen.
           </p>
 
-          <button type="submit">Create draft avatar</button>
+          <button type="submit">Crear avatar (borrador)</button>
         </form>
       </div>
     </main>

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccountId } from "@/lib/account";
 import { signOut } from "@/app/login/actions";
 import { GENERATED_CONTENT_BUCKET, languageLabel } from "@/lib/avatars";
+import BrandMark from "@/app/BrandMark";
 
 export const dynamic = "force-dynamic";
 
@@ -51,32 +52,35 @@ export default async function GalleryPage() {
 
   return (
     <main className="container wide">
+      <div className="brand-header">
+        <BrandMark />
+        <div className="row">
+          <Link href="/studio"><button className="secondary" type="button">Estudio</button></Link>
+          <Link href="/gallery"><button className="secondary" type="button">Galería</button></Link>
+          <Link href="/credits"><button className="secondary" type="button">Créditos</button></Link>
+          <Link href="/avatars"><button className="secondary" type="button">Avatares</button></Link>
+          <form action={signOut}>
+            <button className="secondary" type="submit">Salir</button>
+          </form>
+        </div>
+      </div>
+
       <header className="page-header">
         <div>
-          <h1 style={{ margin: 0 }}>Gallery</h1>
+          <h1 style={{ margin: 0 }}>Galería</h1>
           <p className="muted" style={{ margin: "4px 0 0" }}>
-            {videos.length} generated video{videos.length === 1 ? "" : "s"}.
+            {videos.length} {videos.length === 1 ? "vídeo generado" : "vídeos generados"} ·
+            todos llevan la marca “Generado con IA”.
           </p>
-        </div>
-        <div className="row">
-          <Link href="/studio">
-            <button className="secondary" type="button">Studio</button>
-          </Link>
-          <Link href="/credits">
-            <button className="secondary" type="button">Credits</button>
-          </Link>
-          <form action={signOut}>
-            <button className="secondary" type="submit">Sign out</button>
-          </form>
         </div>
       </header>
 
       {videos.length === 0 ? (
         <div className="card empty">
-          <p style={{ marginTop: 0 }}>No videos yet.</p>
-          <p className="muted">Generate your first video in the studio.</p>
+          <p style={{ marginTop: 0 }}>Aún no hay vídeos.</p>
+          <p className="muted">Genera tu primer vídeo en el estudio.</p>
           <Link href="/studio">
-            <button type="button">Go to studio</button>
+            <button type="button">Ir al estudio</button>
           </Link>
         </div>
       ) : (
@@ -103,9 +107,12 @@ export default async function GalleryPage() {
                   </span>
                 </div>
                 {url ? (
-                  <a href={url} download={`${v.avatars?.name ?? "video"}_${v.language ?? ""}.mp4`}>
-                    <button className="secondary" type="button">Download</button>
-                  </a>
+                  <div className="row" style={{ justifyContent: "space-between" }}>
+                    <a href={url} download={`${v.avatars?.name ?? "video"}_${v.language ?? ""}.mp4`}>
+                      <button className="secondary" type="button">Descargar</button>
+                    </a>
+                    <span className="ai-note">Generado con IA</span>
+                  </div>
                 ) : null}
               </div>
             );

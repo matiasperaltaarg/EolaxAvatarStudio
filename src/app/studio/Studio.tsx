@@ -31,12 +31,12 @@ type LangProgress = {
 };
 
 const STEP_LABEL: Record<StepKey, string> = {
-  queued: "Queued…",
-  translating: "Translating…",
-  voice: "Generating voice…",
-  video: "Creating video with lip-sync…",
-  done: "Done ✓",
-  error: "Failed",
+  queued: "En cola…",
+  translating: "Traduciendo…",
+  voice: "Generando voz…",
+  video: "Creando vídeo con sincronización labial…",
+  done: "Listo ✓",
+  error: "Error",
 };
 
 function sleep(ms: number) {
@@ -350,17 +350,17 @@ export default function Studio({
       <div className="studio-grid">
         <div className="studio-col">
           <section className="card">
-            <h2>Generation progress</h2>
+            <h2>Progreso de generación</h2>
             <p className="muted small">
               {selectedAvatar?.name} · {aspectRatio} · {languages.length}{" "}
-              language{languages.length === 1 ? "" : "s"}
+              {languages.length === 1 ? "idioma" : "idiomas"}
             </p>
             <ul className="progress-list">
               {progress.map((p) => {
                 const lang = studioLanguage(p.code);
                 const label =
                   p.step === "translating"
-                    ? `Translating to ${lang?.label}…`
+                    ? `Traduciendo a ${lang?.label}…`
                     : p.step === "video" && p.note
                       ? `${STEP_LABEL.video} (${p.note})`
                       : STEP_LABEL[p.step];
@@ -368,7 +368,7 @@ export default function Studio({
                   <li key={p.code} className={`progress-item step-${p.step}`}>
                     <span className="progress-lang">{lang?.label}</span>
                     <span className="progress-step">
-                      {p.step === "error" ? p.error ?? "Failed" : label}
+                      {p.step === "error" ? p.error ?? "Error" : label}
                     </span>
                   </li>
                 );
@@ -376,11 +376,12 @@ export default function Studio({
             </ul>
             {phase === "results" ? (
               <button type="button" onClick={reset} style={{ marginTop: 16 }}>
-                Generate another
+                Generar otro
               </button>
             ) : (
               <p className="muted small" style={{ marginTop: 12 }}>
-                This can take 30–90 seconds per video. Keep this tab open.
+                Esto puede tardar entre 30 y 90 segundos por vídeo (a veces más).
+                Mantén esta pestaña abierta — sigue trabajando.
               </p>
             )}
             {batchError ? <p className="error">{batchError}</p> : null}
@@ -389,9 +390,9 @@ export default function Studio({
 
         <div className="studio-col">
           <section className="card">
-            <h2>Results</h2>
+            <h2>Resultados</h2>
             {results.length === 0 ? (
-              <p className="muted">Videos will appear here as each one finishes.</p>
+              <p className="muted">Los vídeos aparecerán aquí a medida que terminen.</p>
             ) : (
               <div className="results-list">
                 {results.map((r) => {
@@ -407,14 +408,17 @@ export default function Studio({
                       </div>
                       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                       <video controls src={r.videoUrl} className="result-video" />
-                      <a
-                        href={r.videoUrl}
-                        download={`${selectedAvatar?.name ?? "video"}_${r.code}.mp4`}
-                      >
-                        <button className="secondary" type="button">
-                          Download
-                        </button>
-                      </a>
+                      <div className="row" style={{ justifyContent: "space-between" }}>
+                        <a
+                          href={r.videoUrl}
+                          download={`${selectedAvatar?.name ?? "video"}_${r.code}.mp4`}
+                        >
+                          <button className="secondary" type="button">
+                            Descargar
+                          </button>
+                        </a>
+                        <span className="ai-note">Contenido generado con IA</span>
+                      </div>
                     </div>
                   );
                 })}
@@ -434,7 +438,7 @@ export default function Studio({
       <div className="studio-col">
         {/* STEP 1 — avatar */}
         <section className="card">
-          <h2>1 · Select avatar</h2>
+          <h2>1 · Elige el avatar</h2>
           <div className="avatar-cards">
             {avatars.map((a) => {
               const disabled = !a.hasVoice;
@@ -454,7 +458,7 @@ export default function Studio({
                     <div className="avatar-thumb placeholder" />
                   )}
                   <div className="avatar-card-name">{a.name}</div>
-                  {disabled ? <div className="muted small">Clone voice first</div> : null}
+                  {disabled ? <div className="muted small">Clona la voz primero</div> : null}
                 </button>
               );
             })}
@@ -463,7 +467,7 @@ export default function Studio({
 
         {/* STEP 2 — script */}
         <section className="card">
-          <h2>2 · Write the script</h2>
+          <h2>2 · Escribe el guion</h2>
           <textarea
             rows={5}
             value={script}
@@ -471,11 +475,11 @@ export default function Studio({
               setScript(e.target.value);
               setSuggestion(null);
             }}
-            placeholder="Write what the avatar should say…"
+            placeholder="Escribe lo que dirá el avatar…"
           />
           <div className="row" style={{ justifyContent: "space-between" }}>
             <span className="muted small">
-              {charCount} chars · ~{estSeconds}s
+              {charCount} caracteres · ~{estSeconds}s
             </span>
             <button
               type="button"
@@ -483,13 +487,13 @@ export default function Studio({
               onClick={onImprove}
               disabled={improving || !script.trim()}
             >
-              {improving ? "Improving…" : "✨ Improve with AI"}
+              {improving ? "Mejorando…" : "✨ Mejorar con IA"}
             </button>
           </div>
           {improveError ? <p className="error">{improveError}</p> : null}
           {suggestion ? (
             <div className="suggestion">
-              <p className="muted small" style={{ marginTop: 0 }}>AI suggestion:</p>
+              <p className="muted small" style={{ marginTop: 0 }}>Sugerencia de IA:</p>
               <p>{suggestion}</p>
               <div className="row">
                 <button
@@ -499,10 +503,10 @@ export default function Studio({
                     setSuggestion(null);
                   }}
                 >
-                  Accept
+                  Aceptar
                 </button>
                 <button type="button" className="secondary" onClick={() => setSuggestion(null)}>
-                  Reject
+                  Descartar
                 </button>
               </div>
             </div>
@@ -511,7 +515,7 @@ export default function Studio({
 
         {/* STEP 3 — languages */}
         <section className="card">
-          <h2>3 · Languages</h2>
+          <h2>3 · Idiomas</h2>
           <div className="chips">
             {STUDIO_LANGUAGES.map((l) => (
               <button
@@ -525,28 +529,27 @@ export default function Studio({
             ))}
           </div>
           <p className="muted small">
-            {languages.length} language{languages.length === 1 ? "" : "s"} selected ·
-            generates {languages.length} video{languages.length === 1 ? "" : "s"}
+            {languages.length} {languages.length === 1 ? "idioma seleccionado" : "idiomas seleccionados"} ·
+            genera {languages.length} {languages.length === 1 ? "vídeo" : "vídeos"}
           </p>
           <p className="muted small">
-            Your script will be translated and spoken in each language with the
-            cloned voice.
+            Tu guion se traducirá y se hablará en cada idioma con la voz clonada.
           </p>
         </section>
 
         {/* STEP 4 — look (wardrobe + background presets) */}
         <section className="card">
-          <h2>4 · Look</h2>
+          <h2>4 · Apariencia</h2>
           {!selectedAvatar ? (
-            <p className="muted small">Select an avatar to choose its look.</p>
+            <p className="muted small">Elige un avatar para definir su apariencia.</p>
           ) : selectedAvatar.wardrobe.length === 0 &&
             selectedAvatar.background.length === 0 ? (
             <p className="muted small">
-              No presets for this avatar yet. The raw reference photo will be used.
+              Este avatar aún no tiene presets. Se usará la foto de referencia original.
             </p>
           ) : (
             <>
-              <label htmlFor="wardrobe">Wardrobe</label>
+              <label htmlFor="wardrobe">Vestuario</label>
               <select
                 id="wardrobe"
                 value={wardrobeId}
@@ -563,7 +566,7 @@ export default function Studio({
                 ))}
               </select>
 
-              <label htmlFor="background">Background</label>
+              <label htmlFor="background">Fondo</label>
               <select
                 id="background"
                 value={backgroundId}
@@ -572,7 +575,7 @@ export default function Studio({
                   setLookError(null);
                 }}
               >
-                <option value="">— none —</option>
+                <option value="">— ninguno —</option>
                 {selectedAvatar.background.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.label}
@@ -581,8 +584,8 @@ export default function Studio({
               </select>
 
               <p className="muted small">
-                Presets only (predefined). The look is applied to the avatar
-                image before the video — pick one of each, then preview.
+                Solo presets (predefinidos). La apariencia se aplica a la imagen
+                del avatar antes del vídeo — elige uno de cada y previsualiza.
               </p>
               <button
                 type="button"
@@ -593,10 +596,10 @@ export default function Studio({
                 disabled={!hasLookSelection || applyingLook}
               >
                 {applyingLook
-                  ? "Applying look…"
+                  ? "Aplicando apariencia…"
                   : lookReady
-                    ? "Look applied ✓ — re-preview"
-                    : "Preview look"}
+                    ? "Apariencia aplicada ✓ — volver a previsualizar"
+                    : "Previsualizar apariencia"}
               </button>
               {lookError ? <p className="error">{lookError}</p> : null}
             </>
@@ -605,23 +608,23 @@ export default function Studio({
 
         {/* STEP 5 — on-screen text */}
         <section className="card">
-          <h2>5 · On-screen text</h2>
+          <h2>5 · Texto en pantalla</h2>
           <input
             type="text"
             value={overlayText}
             onChange={(e) => setOverlayText(e.target.value)}
-            placeholder="Optional caption burned onto the video"
+            placeholder="Texto opcional incrustado en el vídeo"
             maxLength={120}
           />
           <p className="muted small">
-            Optional. Burned onto the final video programmatically (free, no AI),
-            with an outline for readability and positioned for the chosen format.
+            Opcional. Se incrusta en el vídeo final de forma programática (gratis,
+            sin IA), con borde para legibilidad y posicionado según el formato.
           </p>
         </section>
 
         {/* STEP 6 — format */}
         <section className="card">
-          <h2>6 · Format</h2>
+          <h2>6 · Formato</h2>
           <div className="chips">
             {ASPECT_RATIOS.map((r) => (
               <button
@@ -635,57 +638,55 @@ export default function Studio({
             ))}
           </div>
           <p className="muted small">
-            One format per batch — the same format is used for all selected
-            languages.
+            Un formato por lote — se usa el mismo para todos los idiomas elegidos.
           </p>
         </section>
 
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="row" style={{ justifyContent: "space-between" }}>
-            <span className="muted small">Credit balance</span>
+            <span className="muted small">Saldo de créditos</span>
             <span className="small">
-              <strong>{balanceSeconds}s</strong> available
+              <strong>{balanceSeconds}s</strong> disponibles
             </span>
           </div>
           {languages.length > 0 ? (
             <div className="row" style={{ justifyContent: "space-between" }}>
               <span className="muted small">
-                Estimated cost ({languages.length} ×{" "}
-                {languages.length > 0 ? estSeconds : 0}s)
+                Coste estimado ({languages.length} × {estSeconds}s)
               </span>
               <span className="small">~{estimatedCost}s</span>
             </div>
           ) : null}
           <p className="muted small" style={{ margin: "6px 0 0" }}>
-            Each completed video (including regenerations) is charged its actual
-            duration.
+            Cada vídeo completado (incluidas las regeneraciones) descuenta su
+            duración real.
           </p>
         </div>
 
         <button type="button" onClick={onGenerate} disabled={!canGenerate}>
-          Generate {languages.length > 0 ? `${languages.length} ` : ""}video
-          {languages.length === 1 ? "" : "s"}
+          Generar {languages.length > 0 ? `${languages.length} ` : ""}
+          {languages.length === 1 ? "vídeo" : "vídeos"}
         </button>
         {!selectedAvatar ? (
-          <p className="muted small">Select an avatar to begin.</p>
+          <p className="muted small">Elige un avatar para empezar.</p>
         ) : !selectedAvatar.hasVoice ? (
-          <p className="muted small">This avatar has no cloned voice.</p>
+          <p className="muted small">Este avatar no tiene voz clonada.</p>
         ) : charCount > 0 && languages.length > 0 && !enoughCredits ? (
           <p className="error">
-            Not enough credits — {estimatedCost}s needed, {balanceSeconds}s
-            available. Contact MTS to recharge.
+            Créditos insuficientes — se necesitan {estimatedCost}s y hay{" "}
+            {balanceSeconds}s disponibles. Contacta con MTS para recargar.
           </p>
         ) : null}
       </div>
 
       <div className="studio-col">
         <section className="card">
-          <h2>Preview</h2>
+          <h2>Vista previa</h2>
           {lookReady && lookImageUrl ? (
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={lookImageUrl} alt="Applied look" className="preview-image" />
-              <p className="ok small">✓ Look applied — this image drives the video.</p>
+              <img src={lookImageUrl} alt="Apariencia aplicada" className="preview-image" />
+              <p className="ok small">✓ Apariencia aplicada — esta imagen genera el vídeo.</p>
             </>
           ) : selectedAvatar?.thumbnailUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -695,14 +696,17 @@ export default function Studio({
               className="preview-image"
             />
           ) : (
-            <p className="muted">Select an avatar to preview its face.</p>
+            <p className="muted">Elige un avatar para previsualizar su rostro.</p>
           )}
           {selectedAvatar ? (
             <p className="muted small">
-              {selectedAvatar.name} drives the face and the cloned voice for
-              every generated video.
+              {selectedAvatar.name} aporta el rostro y la voz clonada en cada
+              vídeo generado.
             </p>
           ) : null}
+          <p className="ai-note" style={{ marginTop: 10 }}>
+            Todos los vídeos llevan la marca “Generado con IA”.
+          </p>
         </section>
       </div>
     </div>
