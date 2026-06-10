@@ -82,6 +82,47 @@ export async function textToSpeech(
   return res.arrayBuffer();
 }
 
+// POST /v1/text-to-speech/{voice_id}/with-timestamps. Returns the MP3 bytes
+// plus the ACTUAL audio duration in seconds (from the character alignment),
+// so the video step and the videos.duration_seconds column are accurate.
+export async function textToSpeechWithDuration(
+  voiceId: string,
+  text: string
+): Promise<{ audio: Buffer; durationSeconds: number }> {
+  const res = await fetch(`${API_BASE}/text-to-speech/${voiceId}/with-timestamps`, {
+    method: "POST",
+    headers: {
+      "xi-api-key": getApiKey(),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text, model_id: ELEVENLABS_MODEL_ID }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await readError(res, "Voice generation failed"));
+  }
+
+  const json = (await res.json()) as {
+    audio_base64?: string;
+    alignment?: { character_end_times_seconds?: number[] };
+    normalized_alignment?: { character_end_times_seconds?: number[] };
+  };
+
+  if (!json.audio_base64) {
+    throw new Error("ElevenLabs returned no audio.");
+  }
+
+  const ends =
+    json.alignment?.character_end_times_seconds ??
+    json.normalized_alignment?.character_end_times_seconds ??
+    [];
+  const last = ends.length > 0 ? ends[ends.length - 1] : 0;
+  // Keep one decimal of precision; never report less than 1s.
+  const durationSeconds = Math.max(1, Math.round(last * 10) / 10);
+
+  return { audio: Buffer.from(json.audio_base64, "base64"), durationSeconds };
+}
+
 async function readError(res: Response, prefix: string): Promise<string> {
   let detail = "";
   try {

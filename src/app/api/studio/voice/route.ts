@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authedContext } from "@/lib/studio-auth";
-import { GENERATED_CONTENT_BUCKET, estimateDurationSeconds } from "@/lib/avatars";
-import { textToSpeech } from "@/lib/elevenlabs";
+import { GENERATED_CONTENT_BUCKET } from "@/lib/avatars";
+import { textToSpeechWithDuration } from "@/lib/elevenlabs";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -38,12 +38,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const audio = await textToSpeech(avatar.elevenlabs_voice_id, text);
+    // Actual audio duration (from ElevenLabs character alignment) — used for
+    // the videos.duration_seconds column.
+    const { audio, durationSeconds } = await textToSpeechWithDuration(
+      avatar.elevenlabs_voice_id,
+      text
+    );
     const path = `${ctx.accountId}/${avatarId}/${jobId}/audio_${language}.mp3`;
 
     const { error: upErr } = await ctx.supabase.storage
       .from(GENERATED_CONTENT_BUCKET)
-      .upload(path, Buffer.from(audio), { contentType: "audio/mpeg", upsert: true });
+      .upload(path, audio, { contentType: "audio/mpeg", upsert: true });
     if (upErr) throw new Error(upErr.message);
 
     const { data: signed } = await ctx.supabase.storage
@@ -53,7 +58,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       audioPath: path,
       audioUrl: signed?.signedUrl ?? null,
-      durationSeconds: estimateDurationSeconds(text),
+      durationSeconds,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Voice generation failed.";

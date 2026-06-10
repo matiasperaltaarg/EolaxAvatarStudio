@@ -7,7 +7,7 @@ export const maxDuration = 60;
 
 // POST /api/studio/finalize
 // { avatarId, jobId, language, aspectRatio, originalScript, durationSeconds, videoUrl }
-// Downloads the finished Replicate video into the private bucket, creates the
+// Downloads the finished generated video into the private bucket, creates the
 // `videos` row (status='ready'), and returns a signed playback/download URL.
 export async function POST(request: NextRequest) {
   const ctx = await authedContext();
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // 1. Download the finished video from Replicate.
+    // 1. Download the finished video from the generation provider.
     const res = await fetch(videoUrl);
     if (!res.ok) throw new Error(`Could not download generated video (${res.status}).`);
     const bytes = Buffer.from(await res.arrayBuffer());

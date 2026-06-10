@@ -1,18 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authedContext } from "@/lib/studio-auth";
 import { REFERENCE_PHOTOS_BUCKET } from "@/lib/avatars";
-import { VideoModelUnavailableError, startLipsyncVideo } from "@/lib/replicate";
+import { VideoModelUnavailableError, submitInfiniteTalk } from "@/lib/wavespeed";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 // POST /api/studio/video/start  { avatarId, audioUrl }
-// Starts a MultiTalk lip-sync prediction from the avatar's first reference
+// Submits a WaveSpeedAI InfiniteTalk task from the avatar's first reference
 // photo + the generated audio. Returns the prediction id for client polling.
-//
-// Note: the model renders at its native ratio and center-crops the image;
-// true 9:16 / 1:1 / 16:9 cropping is a Phase 6 polish item. The chosen
-// aspect_ratio is still recorded on the video row.
+// InfiniteTalk renders the full audio length — no per-clip frame cap.
 export async function POST(request: NextRequest) {
   const ctx = await authedContext();
   if (!ctx) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -54,11 +51,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const prediction = await startLipsyncVideo({
+    const predictionId = await submitInfiniteTalk({
       imageUrl: signed.signedUrl,
       audioUrl,
     });
-    return NextResponse.json({ predictionId: prediction.id, status: prediction.status });
+    return NextResponse.json({ predictionId, status: "processing" });
   } catch (e) {
     if (e instanceof VideoModelUnavailableError) {
       return NextResponse.json(

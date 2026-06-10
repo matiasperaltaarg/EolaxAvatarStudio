@@ -134,21 +134,21 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
       if (!sRes.ok) throw new Error(`Video: ${sJson.error}`);
       const predictionId: string = sJson.predictionId;
 
-      let replicateVideoUrl: string | null = null;
+      let finishedVideoUrl: string | null = null;
       for (let i = 0; i < 200; i++) {
         await sleep(4000);
         const pRes = await fetch(`/api/studio/video/status?id=${encodeURIComponent(predictionId)}`);
         const pJson = await pRes.json();
         if (!pRes.ok) throw new Error(`Video: ${pJson.error}`);
         if (pJson.status === "succeeded") {
-          replicateVideoUrl = pJson.videoUrl;
+          finishedVideoUrl = pJson.videoUrl;
           break;
         }
         if (pJson.status === "failed" || pJson.status === "canceled") {
           throw new Error(`Video: lip-sync ${pJson.status}${pJson.error ? ` — ${pJson.error}` : ""}`);
         }
       }
-      if (!replicateVideoUrl) throw new Error("Video: timed out waiting for the result.");
+      if (!finishedVideoUrl) throw new Error("Video: timed out waiting for the result.");
 
       // d) Finalize (download → store → DB row).
       const fRes = await fetch("/api/studio/finalize", {
@@ -161,7 +161,7 @@ export default function Studio({ avatars }: { avatars: StudioAvatar[] }) {
           aspectRatio,
           originalScript: script,
           durationSeconds,
-          videoUrl: replicateVideoUrl,
+          videoUrl: finishedVideoUrl,
         }),
       });
       const fJson = await fRes.json();
