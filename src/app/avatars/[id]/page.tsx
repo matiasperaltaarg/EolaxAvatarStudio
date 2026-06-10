@@ -16,6 +16,9 @@ import {
   deleteAvatar,
   updateAvatar,
 } from "../actions";
+import Toast from "./Toast";
+import VoiceCloning from "./VoiceCloning";
+import VoiceTest from "./VoiceTest";
 
 export const dynamic = "force-dynamic";
 
@@ -73,8 +76,7 @@ export default async function AvatarDetailPage({
         </div>
       </header>
 
-      {error ? <p className="error">{error}</p> : null}
-      {ok ? <p className="ok">{ok}</p> : null}
+      <Toast ok={ok} error={error} />
 
       {/* Reference photos -------------------------------------------------- */}
       <section className="card">
@@ -152,6 +154,18 @@ export default async function AvatarDetailPage({
           </p>
         )}
       </section>
+
+      {/* Voice cloning ----------------------------------------------------- */}
+      <VoiceCloning
+        avatarId={avatar.id}
+        hasRights={avatar.rights_confirmed}
+        existingVoiceId={avatar.elevenlabs_voice_id}
+      />
+
+      {/* Voice test (only once a voice is cloned) -------------------------- */}
+      {avatar.elevenlabs_voice_id ? (
+        <VoiceTest avatarId={avatar.id} defaultLanguage={avatar.default_language} />
+      ) : null}
 
       {/* Edit -------------------------------------------------------------- */}
       <section className="card">
