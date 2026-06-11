@@ -78,6 +78,8 @@ export default function Studio({
   // non-serverless-ffmpeg approach.
   const [wardrobeId, setWardrobeId] = useState<string>("");
   const [backgroundId, setBackgroundId] = useState<string>("");
+  const [lookMode, setLookMode] = useState<"preset" | "free">("preset");
+  const [freePrompt, setFreePrompt] = useState<string>("");
   const [lookImageUrl, setLookImageUrl] = useState<string | null>(null);
   const [lookKey, setLookKey] = useState<string>(""); // selection the look image matches
   const [applyingLook, setApplyingLook] = useState(false);
@@ -90,8 +92,11 @@ export default function Studio({
   const charCount = script.trim().length;
   const estSeconds = estimateDurationSeconds(script);
 
-  const hasLookSelection = Boolean(wardrobeId && backgroundId);
-  const currentLookKey = `${wardrobeId}|${backgroundId}`;
+  const trimmedFreePrompt = freePrompt.trim();
+  const hasLookSelection =
+    lookMode === "free" ? trimmedFreePrompt.length > 0 : Boolean(wardrobeId && backgroundId);
+  const currentLookKey =
+    lookMode === "free" ? `free|${trimmedFreePrompt}` : `preset|${wardrobeId}|${backgroundId}`;
   const lookReady = lookImageUrl !== null && lookKey === currentLookKey;
 
   // Credit pre-check: estimate seconds × number of languages. The ACTUAL
@@ -114,6 +119,8 @@ export default function Studio({
     // Reset the look — presets are per avatar.
     setWardrobeId("");
     setBackgroundId("");
+    setLookMode(a.wardrobe.length === 0 && a.background.length === 0 ? "free" : "preset");
+    setFreePrompt("");
     setLookImageUrl(null);
     setLookKey("");
     setLookError(null);
@@ -124,14 +131,18 @@ export default function Studio({
     setApplyingLook(true);
     setLookError(null);
     try {
+      const payload =
+        lookMode === "free"
+          ? { avatarId: selectedAvatar.id, freePrompt: trimmedFreePrompt }
+          : {
+              avatarId: selectedAvatar.id,
+              wardrobePresetId: wardrobeId,
+              backgroundPresetId: backgroundId,
+            };
       const res = await fetch("/api/studio/look", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          avatarId: selectedAvatar.id,
-          wardrobePresetId: wardrobeId,
-          backgroundPresetId: backgroundId,
-        }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Could not apply the look.");
@@ -287,8 +298,8 @@ export default function Studio({
           originalScript: script,
           durationSeconds,
           videoUrl: finishedVideoUrl,
-          wardrobePresetId: hasLookSelection ? wardrobeId : null,
-          backgroundPresetId: hasLookSelection ? backgroundId : null,
+          wardrobePresetId: lookMode === "preset" && hasLookSelection ? wardrobeId : null,
+          backgroundPresetId: lookMode === "preset" && hasLookSelection ? backgroundId : null,
         }),
       });
       const fJson = await fRes.json();
@@ -539,51 +550,95 @@ export default function Studio({
           <h2><span className="step-n">4</span>Apariencia</h2>
           {!selectedAvatar ? (
             <p className="muted small">Elige un avatar para definir su apariencia.</p>
-          ) : selectedAvatar.wardrobe.length === 0 &&
-            selectedAvatar.background.length === 0 ? (
-            <p className="muted small">
-              Este avatar aún no tiene presets. Se usará la foto de referencia original.
-            </p>
           ) : (
             <>
-              <label htmlFor="wardrobe">Vestuario</label>
-              <select
-                id="wardrobe"
-                value={wardrobeId}
-                onChange={(e) => {
-                  setWardrobeId(e.target.value);
-                  setLookError(null);
-                }}
-              >
-                <option value="">— none —</option>
-                {selectedAvatar.wardrobe.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+              <div className="look-mode-toggle" style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                <button
+                  type="button"
+                  className={lookMode === "preset" ? "secondary active" : "secondary"}
+                  onClick={() => {
+                    setLookMode("preset");
+                    setLookError(null);
+                  }}
+                  aria-pressed={lookMode === "preset"}
+                >
+                  Presets
+                </button>
+                <button
+                  type="button"
+                  className={lookMode === "free" ? "secondary active" : "secondary"}
+                  onClick={() => {
+                    setLookMode("free");
+                    setLookError(null);
+                  }}
+                  aria-pressed={lookMode === "free"}
+                >
+                  Descripción libre
+                </button>
+              </div>
 
-              <label htmlFor="background">Fondo</label>
-              <select
-                id="background"
-                value={backgroundId}
-                onChange={(e) => {
-                  setBackgroundId(e.target.value);
-                  setLookError(null);
-                }}
-              >
-                <option value="">— ninguno —</option>
-                {selectedAvatar.background.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+              {lookMode === "preset" ? (
+                <>
+                  <label htmlFor="wardrobe">Vestuario</label>
+                  <select
+                    id="wardrobe"
+                    value={wardrobeId}
+                    onChange={(e) => {
+                      setWardrobeId(e.target.value);
+                      setLookError(null);
+                    }}
+                  >
+                    <option value="">— ninguno —</option>
+                    {selectedAvatar.wardrobe.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
 
-              <p className="muted small">
-                Solo presets (predefinidos). La apariencia se aplica a la imagen
-                del avatar antes del vídeo — elige uno de cada y previsualiza.
-              </p>
+                  <label htmlFor="background">Fondo</label>
+                  <select
+                    id="background"
+                    value={backgroundId}
+                    onChange={(e) => {
+                      setBackgroundId(e.target.value);
+                      setLookError(null);
+                    }}
+                  >
+                    <option value="">— ninguno —</option>
+                    {selectedAvatar.background.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <p className="muted small">
+                    Presets predefinidos. La apariencia se aplica a la imagen del
+                    avatar antes del vídeo — elige uno de cada y previsualiza.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <label htmlFor="freePrompt">Describe la apariencia</label>
+                  <textarea
+                    id="freePrompt"
+                    value={freePrompt}
+                    maxLength={600}
+                    rows={3}
+                    placeholder="Ej: saco azul marino sobre camisa blanca, en una oficina moderna con luz cálida y ventanales al fondo"
+                    onChange={(e) => {
+                      setFreePrompt(e.target.value);
+                      setLookError(null);
+                    }}
+                  />
+                  <p className="muted small">
+                    Describe ropa y escenario en una sola frase. La cara y la
+                    identidad del avatar se mantienen. {trimmedFreePrompt.length}/600
+                  </p>
+                </>
+              )}
+
               <button
                 type="button"
                 className="secondary"
