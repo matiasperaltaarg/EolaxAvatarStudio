@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
     wardrobePresetId?: string;
     backgroundPresetId?: string;
     freePrompt?: string;
+    baseImagePath?: string;
   };
 
   const { avatarId, wardrobePresetId, backgroundPresetId } = body;
@@ -61,7 +62,15 @@ export async function POST(request: NextRequest) {
     .eq("account_id", ctx.accountId)
     .single();
   if (!avatar) return NextResponse.json({ error: "Avatar not found." }, { status: 404 });
-  const firstPhoto = avatar.reference_photos?.[0];
+
+  // Pick the base photo to edit: the caller's chosen/uploaded photo if it's
+  // valid for this account+avatar, otherwise the avatar's first photo.
+  const prefix = `${ctx.accountId}/${avatarId}/`;
+  const requested = body.baseImagePath;
+  const isValidRequested =
+    typeof requested === "string" &&
+    (avatar.reference_photos?.includes(requested) || requested.startsWith(prefix));
+  const firstPhoto = isValidRequested ? requested! : avatar.reference_photos?.[0];
   if (!firstPhoto) {
     return NextResponse.json({ error: "Avatar has no reference photo." }, { status: 400 });
   }
@@ -77,11 +86,15 @@ export async function POST(request: NextRequest) {
     prompt_hash?: string | null;
   };
   let imagePath: string;
+  let skipCacheWrite = false;
 
   if (isFree) {
     // prompt is enriched on cache-miss only (LLM call costs money); placeholder here.
     prompt = "";
-    const promptHash = createHash("sha256").update(freePrompt).digest("hex").slice(0, 32);
+    const promptHash = createHash("sha256")
+      .update(`${firstPhoto}|${freePrompt}`)
+      .digest("hex")
+      .slice(0, 32);
 
     cacheQuery = ctx.supabase
       .from("avatar_look_cache")
@@ -115,13 +128,21 @@ export async function POST(request: NextRequest) {
       .filter(Boolean)
       .join(" ");
 
-    cacheQuery = ctx.supabase
-      .from("avatar_look_cache")
-      .select("image_path")
-      .eq("avatar_id", avatarId)
-      .eq("wardrobe_preset_id", wardrobePresetId)
-      .eq("background_preset_id", backgroundPresetId)
-      .maybeSingle();
+    // The preset cache key is (avatar, wardrobe, background) and does NOT encode
+    // the base photo. So only use/write that cache when editing the avatar's
+    // default photo[0]; for any other chosen/uploaded base photo, bypass cache
+    // to avoid returning a look built on the wrong photo.
+    const usingDefaultPhoto = firstPhoto === avatar.reference_photos?.[0];
+
+    cacheQuery = usingDefaultPhoto
+      ? ctx.supabase
+          .from("avatar_look_cache")
+          .select("image_path")
+          .eq("avatar_id", avatarId)
+          .eq("wardrobe_preset_id", wardrobePresetId)
+          .eq("background_preset_id", backgroundPresetId)
+          .maybeSingle()
+      : Promise.resolve({ data: null });
 
     cacheRow = {
       avatar_id: avatarId,
@@ -129,7 +150,13 @@ export async function POST(request: NextRequest) {
       background_preset_id: backgroundPresetId,
       image_path: "",
     };
-    imagePath = `${ctx.accountId}/${avatarId}/looks/${wardrobePresetId}_${backgroundPresetId}.png`;
+    // Unique-ish path so a non-default photo doesn't overwrite the cached default.
+    const photoTag = usingDefaultPhoto
+      ? "default"
+      : createHash("sha256").update(firstPhoto).digest("hex").slice(0, 12);
+    imagePath = `${ctx.accountId}/${avatarId}/looks/${wardrobePresetId}_${backgroundPresetId}_${photoTag}.png`;
+    // Don't write a cache row for non-default photos (would collide on the key).
+    if (!usingDefaultPhoto) skipCacheWrite = true;
   }
 
   // --- Cache hit? ------------------------------------------------------------
@@ -175,10 +202,12 @@ export async function POST(request: NextRequest) {
     if (upErr) throw new Error(upErr.message);
 
     cacheRow.image_path = imagePath;
-    const onConflict = isFree
-      ? "avatar_id,prompt_hash"
-      : "avatar_id,wardrobe_preset_id,background_preset_id";
-    await ctx.supabase.from("avatar_look_cache").upsert(cacheRow, { onConflict });
+    if (!skipCacheWrite) {
+      const onConflict = isFree
+        ? "avatar_id,prompt_hash"
+        : "avatar_id,wardrobe_preset_id,background_preset_id";
+      await ctx.supabase.from("avatar_look_cache").upsert(cacheRow, { onConflict });
+    }
 
     const { data: signed } = await ctx.supabase.storage
       .from(GENERATED_CONTENT_BUCKET)

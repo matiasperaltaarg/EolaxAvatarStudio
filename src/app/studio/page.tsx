@@ -26,18 +26,24 @@ export default async function StudioPage() {
 
   const avatars = (data ?? []) as Avatar[];
 
-  // Signed thumbnail + wardrobe/background presets for each avatar.
+  // Signed thumbnail + all photos + wardrobe/background presets for each avatar.
   const studioAvatars: StudioAvatar[] = await Promise.all(
     avatars.map(async (a) => {
-      let thumbnailUrl: string | null = null;
-      const first = a.reference_photos?.[0];
-      if (first) {
-        const { data: signed } = await supabase.storage
-          .from(REFERENCE_PHOTOS_BUCKET)
-          .createSignedUrl(first, 3600);
-        thumbnailUrl = signed?.signedUrl ?? null;
-      }
+      const allPaths: string[] = a.reference_photos ?? [];
+      const photos = (
+        await Promise.all(
+          allPaths.map(async (path) => {
+            const { data: signed } = await supabase.storage
+              .from(REFERENCE_PHOTOS_BUCKET)
+              .createSignedUrl(path, 3600);
+            return signed?.signedUrl
+              ? { path, url: signed.signedUrl }
+              : null;
+          })
+        )
+      ).filter((p): p is { path: string; url: string } => p !== null);
 
+      const thumbnailUrl = photos[0]?.url ?? null;
       const [{ data: wardrobe }, { data: background }] = await Promise.all([
         supabase
           .from("wardrobe_presets")
@@ -57,6 +63,7 @@ export default async function StudioPage() {
         hasVoice: Boolean(a.elevenlabs_voice_id),
         defaultLanguage: a.default_language,
         thumbnailUrl,
+        photos,
         wardrobe: wardrobe ?? [],
         background: background ?? [],
       };
@@ -88,7 +95,7 @@ export default async function StudioPage() {
             </Link>
           </div>
         ) : (
-          <Studio avatars={studioAvatars} balanceSeconds={balanceSeconds} />
+          <Studio avatars={studioAvatars} balanceSeconds={balanceSeconds} accountId={accountId} />
         )}
       </main>
     </AppShell>

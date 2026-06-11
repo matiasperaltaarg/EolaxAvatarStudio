@@ -4,9 +4,11 @@ import { useMemo, useState } from "react";
 import {
   ASPECT_RATIOS,
   STUDIO_LANGUAGES,
+  REFERENCE_PHOTOS_BUCKET,
   estimateDurationSeconds,
   studioLanguage,
 } from "@/lib/avatars";
+import { createClient } from "@/lib/supabase/client";
 
 export type StudioAvatar = {
   id: string;
@@ -14,6 +16,7 @@ export type StudioAvatar = {
   hasVoice: boolean;
   defaultLanguage: string;
   thumbnailUrl: string | null;
+  photos: { path: string; url: string }[];
   wardrobe: { id: string; label: string }[];
   background: { id: string; label: string }[];
 };
@@ -59,9 +62,11 @@ const MAX_VIDEO_ATTEMPTS = 3;
 export default function Studio({
   avatars,
   balanceSeconds,
+  accountId,
 }: {
   avatars: StudioAvatar[];
   balanceSeconds: number;
+  accountId: string;
 }) {
   const [phase, setPhase] = useState<"form" | "running" | "results">("form");
 
@@ -87,6 +92,15 @@ export default function Studio({
 
   const [progress, setProgress] = useState<LangProgress[]>([]);
   const [batchError, setBatchError] = useState<string | null>(null);
+
+  // Base photo for THIS video: defaults to the avatar's first photo, but the
+  // user can pick another of the avatar's photos or upload a new one (used only
+  // for this video, not saved to the avatar). baseImagePath drives the look
+  // edit; baseImageUrl is the signed URL used directly when no look is applied.
+  const [baseImagePath, setBaseImagePath] = useState<string | null>(null);
+  const [baseImageUrl, setBaseImageUrl] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const selectedAvatar = avatars.find((a) => a.id === avatarId) ?? null;
   const charCount = script.trim().length;
@@ -116,6 +130,10 @@ export default function Studio({
     setLanguages((prev) =>
       prev.length === 0 && studioLanguage(a.defaultLanguage) ? [a.defaultLanguage] : prev
     );
+    // Default the base photo to the avatar's first photo.
+    setBaseImagePath(a.photos[0]?.path ?? null);
+    setBaseImageUrl(a.photos[0]?.url ?? null);
+    setPhotoError(null);
     // Reset the look — presets are per avatar.
     setWardrobeId("");
     setBackgroundId("");
@@ -126,6 +144,50 @@ export default function Studio({
     setLookError(null);
   }
 
+  // Switch the base photo to another of the avatar's existing photos.
+  // Any applied look was computed on the previous photo, so invalidate it.
+  function chooseExistingPhoto(path: string, url: string) {
+    setBaseImagePath(path);
+    setBaseImageUrl(url);
+    setPhotoError(null);
+    setLookImageUrl(null);
+    setLookKey("");
+  }
+
+  // Upload a new photo to Storage for THIS video only (not saved to the avatar).
+  // Direct browser → Storage upload (same pattern as voice, avoids body limits).
+  async function uploadNewPhoto(file: File) {
+    if (!selectedAvatar) return;
+    setUploadingPhoto(true);
+    setPhotoError(null);
+    try {
+      const supabase = createClient();
+      const dot = file.name.lastIndexOf(".");
+      const ext =
+        dot >= 0 ? file.name.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, "") : "jpg";
+      const path = `${accountId}/${selectedAvatar.id}/adhoc/${crypto.randomUUID()}.${ext || "jpg"}`;
+      const { error: upErr } = await supabase.storage
+        .from(REFERENCE_PHOTOS_BUCKET)
+        .upload(path, file, { contentType: file.type || "image/jpeg", upsert: false });
+      if (upErr) throw new Error(upErr.message);
+
+      const { data: signed } = await supabase.storage
+        .from(REFERENCE_PHOTOS_BUCKET)
+        .createSignedUrl(path, 3600);
+      if (!signed?.signedUrl) throw new Error("No se pudo leer la foto subida.");
+
+      // Use the new photo as the base; invalidate any prior look.
+      setBaseImagePath(path);
+      setBaseImageUrl(signed.signedUrl);
+      setLookImageUrl(null);
+      setLookKey("");
+    } catch (e) {
+      setPhotoError(e instanceof Error ? e.message : "No se pudo subir la foto.");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
+
   async function applyLook(): Promise<string> {
     if (!selectedAvatar || !hasLookSelection) throw new Error("Select a look first.");
     setApplyingLook(true);
@@ -133,11 +195,12 @@ export default function Studio({
     try {
       const payload =
         lookMode === "free"
-          ? { avatarId: selectedAvatar.id, freePrompt: trimmedFreePrompt }
+          ? { avatarId: selectedAvatar.id, freePrompt: trimmedFreePrompt, baseImagePath }
           : {
               avatarId: selectedAvatar.id,
               wardrobePresetId: wardrobeId,
               backgroundPresetId: backgroundId,
+              baseImagePath,
             };
       const res = await fetch("/api/studio/look", {
         method: "POST",
@@ -321,8 +384,9 @@ export default function Studio({
     setBatchError(null);
 
     // Apply the look ONCE (kontext edit, cached) before the per-language loop,
-    // so the edited image drives every video. Skipped if no look is selected.
-    let lookUrl: string | null = null;
+    // so the edited image drives every video. If no look is selected, use the
+    // chosen/uploaded base photo directly (falls back to avatar's photo[0]).
+    let lookUrl: string | null = baseImageUrl;
     if (hasLookSelection) {
       try {
         lookUrl = lookReady ? lookImageUrl : await applyLook();
@@ -471,6 +535,48 @@ export default function Studio({
               );
             })}
           </div>
+
+          {selectedAvatar ? (
+            <div className="photo-picker">
+              <label className="small" style={{ display: "block", margin: "12px 0 6px" }}>
+                Foto para este video
+              </label>
+              <div className="photo-options">
+                {selectedAvatar.photos.map((p) => (
+                  <button
+                    key={p.path}
+                    type="button"
+                    className={`photo-option${baseImagePath === p.path ? " selected" : ""}`}
+                    onClick={() => chooseExistingPhoto(p.path, p.url)}
+                    title="Usar esta foto"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.url} alt="Foto del avatar" />
+                  </button>
+                ))}
+
+                <label className={`photo-option upload${uploadingPhoto ? " busy" : ""}`}>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+                    style={{ display: "none" }}
+                    disabled={uploadingPhoto}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) uploadNewPhoto(f);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  <span>{uploadingPhoto ? "Subiendo…" : "+ Subir foto"}</span>
+                </label>
+              </div>
+              <p className="muted small" style={{ marginTop: 6 }}>
+                La foto subida se usa solo para este video; no se guarda en el avatar.
+                Usá una foto frontal y nítida para mejor calidad.
+              </p>
+              {photoError ? <p className="error">{photoError}</p> : null}
+            </div>
+          ) : null}
         </section>
 
         {/* STEP 2 — script */}
@@ -728,11 +834,11 @@ export default function Studio({
               <img src={lookImageUrl} alt="Apariencia aplicada" className="preview-image" />
               <p className="ok small">✓ Apariencia aplicada — esta imagen genera el vídeo.</p>
             </>
-          ) : selectedAvatar?.thumbnailUrl ? (
+          ) : baseImageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={selectedAvatar.thumbnailUrl}
-              alt={selectedAvatar.name}
+              src={baseImageUrl}
+              alt={selectedAvatar?.name ?? "Avatar"}
               className="preview-image"
             />
           ) : (
