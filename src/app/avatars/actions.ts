@@ -3,8 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getAccountId } from "@/lib/account";
 import { REFERENCE_PHOTOS_BUCKET } from "@/lib/avatars";
+import { getAvatarCreditBalance, debitForAvatarCreation } from "@/lib/credits";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,6 +61,16 @@ export async function createAvatar(formData: FormData) {
   const accountId = await getAccountId();
   const supabase = await createClient();
 
+  // Server-side credit pre-check — never trust the client.
+  const avatarBalance = await getAvatarCreditBalance(supabase, accountId);
+  if (avatarBalance < 1) {
+    redirect(
+      `/avatars/new?error=${encodeURIComponent(
+        "No tenés créditos de avatar disponibles. Contactá con MTS para cargar créditos."
+      )}`
+    );
+  }
+
   // Create the draft row first so uploads can be namespaced by avatar id.
   const { data: avatar, error: insertError } = await supabase
     .from("avatars")
@@ -89,6 +101,15 @@ export async function createAvatar(formData: FormData) {
     await supabase.from("avatars").delete().eq("id", avatar.id);
     const message = e instanceof Error ? e.message : "Upload failed.";
     redirect(`/avatars/new?error=${encodeURIComponent(message)}`);
+  }
+
+  // Debit 1 avatar credit on successful creation (idempotent per avatar_id).
+  try {
+    const admin = createAdminClient();
+    await debitForAvatarCreation(admin, accountId, avatar.id);
+  } catch {
+    // Debit failed but avatar was created. Log but don't roll back — the avatar
+    // exists, and the admin can reconcile manually. Better than losing the upload.
   }
 
   revalidatePath("/avatars");

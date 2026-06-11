@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountId } from "@/lib/account";
-import { PACKS, getBalanceSeconds, type CreditPack } from "@/lib/credits";
+import { PACKS, getBalanceSeconds, getAvatarCreditBalance, type CreditPack, type AvatarCreditPack } from "@/lib/credits";
 import { languageLabel } from "@/lib/avatars";
 import AppShell from "@/app/AppShell";
 
@@ -28,10 +28,16 @@ export default async function CreditsPage() {
 
   const accountId = await getAccountId();
 
-  const [balance, packsRes, logRes] = await Promise.all([
+  const [balance, avatarBalance, packsRes, avatarPacksRes, logRes, avatarLogRes] = await Promise.all([
     getBalanceSeconds(supabase, accountId),
+    getAvatarCreditBalance(supabase, accountId),
     supabase
       .from("credit_packs")
+      .select("*")
+      .eq("account_id", accountId)
+      .order("purchased_at", { ascending: false }),
+    supabase
+      .from("avatar_credit_packs")
       .select("*")
       .eq("account_id", accountId)
       .order("purchased_at", { ascending: false }),
@@ -41,9 +47,18 @@ export default async function CreditsPage() {
       .eq("videos.avatars.account_id", accountId)
       .order("created_at", { ascending: false })
       .limit(25),
+    supabase
+      .from("avatar_creation_log")
+      .select("credits_charged, created_at, avatars!inner(name, account_id)")
+      .eq("avatars.account_id", accountId)
+      .order("created_at", { ascending: false })
+      .limit(25),
   ]);
 
   const packs = (packsRes.data ?? []) as CreditPack[];
+  const avatarPacks = (avatarPacksRes.data ?? []) as AvatarCreditPack[];
+  type AvatarLogRow = { credits_charged: number; created_at: string; avatars: { name: string } | null };
+  const avatarLog = (avatarLogRes.data ?? []) as unknown as AvatarLogRow[];
   const log = (logRes.data ?? []) as unknown as LogRow[];
   const now = Date.now();
 
@@ -59,15 +74,24 @@ export default async function CreditsPage() {
         </div>
       </header>
 
-      <section className="card balance-card">
-        <div className="balance-big">{mmss(balance)}</div>
-        <div className="muted">disponibles ({balance}s)</div>
-      </section>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <section className="card balance-card">
+          <div className="muted small" style={{ marginBottom: 4 }}>Tiempo de video</div>
+          <div className="balance-big">{mmss(balance)}</div>
+          <div className="muted">disponibles ({balance}s)</div>
+        </section>
+        <section className="card balance-card">
+          <div className="muted small" style={{ marginBottom: 4 }}>Créditos de avatar</div>
+          <div className="balance-big">{avatarBalance}</div>
+          <div className="muted">{avatarBalance === 1 ? "avatar disponible" : "avatares disponibles"}</div>
+        </section>
+      </div>
 
       <p className="muted small">
         Sin cuota mensual. Cada pack es válido durante 6 meses. Cada generación
-        (incluidas las regeneraciones) consume créditos. Las generaciones
-        fallidas no se cobran.
+        (incluidas las regeneraciones) consume créditos de video. Cada avatar
+        creado consume 1 crédito de avatar. Las generaciones fallidas no se
+        cobran.
       </p>
 
       <section className="card">
@@ -103,7 +127,60 @@ export default async function CreditsPage() {
       </section>
 
       <section className="card">
-        <h2>Consumo reciente</h2>
+        <h2>Packs de avatar</h2>
+        {avatarPacks.length === 0 ? (
+          <p className="muted">
+            Aún no hay packs de avatar. Contacta con MTS para añadir créditos de
+            avatar a esta cuenta.
+          </p>
+        ) : (
+          <ul className="pack-list">
+            {avatarPacks.map((p) => {
+              const expired = new Date(p.expires_at).getTime() < now;
+              const remaining = Math.max(0, p.credits_total - p.credits_used);
+              return (
+                <li key={p.id} className={`pack-row${expired ? " expired" : ""}`}>
+                  <div>
+                    <strong>Avatar pack</strong>
+                    <span className="muted small">
+                      {" "}· {remaining} de {p.credits_total} {p.credits_total === 1 ? "crédito" : "créditos"}
+                    </span>
+                  </div>
+                  <div className="muted small">
+                    {expired
+                      ? `Caducó el ${new Date(p.expires_at).toLocaleDateString()}`
+                      : `Caduca el ${new Date(p.expires_at).toLocaleDateString()}`}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Consumo de avatares</h2>
+        {avatarLog.length === 0 ? (
+          <p className="muted">Aún no se ha cobrado ninguna creación de avatar.</p>
+        ) : (
+          <ul className="pack-list">
+            {avatarLog.map((row, i) => (
+              <li key={i} className="pack-row">
+                <div>
+                  <strong>{row.avatars?.name ?? "Avatar"}</strong>
+                </div>
+                <div className="muted small">
+                  −{row.credits_charged} crédito ·{" "}
+                  {new Date(row.created_at).toLocaleString()}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Consumo reciente de video</h2>
         {log.length === 0 ? (
           <p className="muted">Aún no se ha cobrado ninguna generación.</p>
         ) : (
