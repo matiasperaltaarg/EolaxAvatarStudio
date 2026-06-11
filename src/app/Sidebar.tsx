@@ -6,7 +6,7 @@ import { useState } from "react";
 import BrandMark from "./BrandMark";
 import { signOut } from "./login/actions";
 
-type Props = { balanceSeconds: number; email: string };
+type Props = { balanceSeconds: number; avatarCredits: number; email: string };
 
 const NAV: { href: string; label: string; icon: React.ReactNode }[] = [
   { href: "/studio", label: "Estudio", icon: <IconStudio /> },
@@ -21,7 +21,7 @@ function mmss(total: number) {
   return `${m}m ${s}s`;
 }
 
-export default function Sidebar({ balanceSeconds, email }: Props) {
+export default function Sidebar({ balanceSeconds, avatarCredits, email }: Props) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -62,12 +62,16 @@ export default function Sidebar({ balanceSeconds, email }: Props) {
 
         <div className="sidebar-foot">
           <Link href="/credits" className="credits-card" onClick={() => setOpen(false)}>
-            <div className="lbl">Saldo disponible</div>
+            <div className="lbl">Tiempo de video</div>
             <div className="big">
               {mmss(balanceSeconds)} <span>({balanceSeconds}s)</span>
             </div>
             <div className="cbar">
               <i style={{ width: `${fill}%` }} />
+            </div>
+            <div className="lbl" style={{ marginTop: 8 }}>Créditos de avatar</div>
+            <div className="big">
+              {avatarCredits} <span>{avatarCredits === 1 ? "avatar" : "avatares"}</span>
             </div>
           </Link>
 

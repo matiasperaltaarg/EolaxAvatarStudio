@@ -93,3 +93,71 @@ export async function debitForVideo(
   // still records the full charge. Not expected given the pre-check.
   return { charged: true, secondsCharged: seconds };
 }
+
+// ---------------------------------------------------------------------------
+// Avatar credits — second currency
+// ---------------------------------------------------------------------------
+
+export type AvatarCreditPack = {
+  id: string;
+  account_id: string;
+  credits_total: number;
+  credits_used: number;
+  purchased_at: string;
+  expires_at: string;
+};
+
+export async function getAvatarCreditBalance(
+  supabase: SupabaseClient,
+  accountId: string
+): Promise<number> {
+  const { data } = await supabase
+    .from("avatar_credit_packs")
+    .select("credits_total, credits_used, expires_at")
+    .eq("account_id", accountId)
+    .gt("expires_at", new Date().toISOString());
+
+  return (data ?? []).reduce(
+    (sum, p) => sum + Math.max(0, (p.credits_total ?? 0) - (p.credits_used ?? 0)),
+    0
+  );
+}
+
+export async function debitForAvatarCreation(
+  admin: SupabaseClient,
+  accountId: string,
+  avatarId: string
+): Promise<{ charged: boolean }> {
+  const { data: claimed, error: claimErr } = await admin
+    .from("avatar_creation_log")
+    .upsert(
+      { avatar_id: avatarId, credits_charged: 1 },
+      { onConflict: "avatar_id", ignoreDuplicates: true }
+    )
+    .select("id");
+
+  if (claimErr) throw new Error(`Avatar credit log failed: ${claimErr.message}`);
+  if (!claimed || claimed.length === 0) {
+    return { charged: false };
+  }
+
+  const { data: packs } = await admin
+    .from("avatar_credit_packs")
+    .select("id, credits_total, credits_used, expires_at")
+    .eq("account_id", accountId)
+    .gt("expires_at", new Date().toISOString())
+    .order("purchased_at", { ascending: true });
+
+  for (const pack of packs ?? []) {
+    const available = Math.max(0, pack.credits_total - pack.credits_used);
+    if (available <= 0) continue;
+    const { error } = await admin
+      .from("avatar_credit_packs")
+      .update({ credits_used: pack.credits_used + 1 })
+      .eq("id", pack.id);
+    if (error) throw new Error(`Avatar credit debit failed: ${error.message}`);
+    return { charged: true };
+  }
+
+  return { charged: true };
+}

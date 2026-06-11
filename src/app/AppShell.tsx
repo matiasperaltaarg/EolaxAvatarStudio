@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAccountId } from "@/lib/account";
-import { getBalanceSeconds } from "@/lib/credits";
+import { getBalanceSeconds, getAvatarCreditBalance } from "@/lib/credits";
 import Sidebar from "./Sidebar";
 
 // Shared authenticated app shell: fixed left sidebar + main content area.
@@ -13,18 +13,23 @@ export default async function AppShell({ children }: { children: React.ReactNode
   } = await supabase.auth.getUser();
 
   let balanceSeconds = 0;
+  let avatarCredits = 0;
   if (user) {
     try {
       const accountId = await getAccountId();
-      balanceSeconds = await getBalanceSeconds(supabase, accountId);
+      [balanceSeconds, avatarCredits] = await Promise.all([
+        getBalanceSeconds(supabase, accountId),
+        getAvatarCreditBalance(supabase, accountId),
+      ]);
     } catch {
       balanceSeconds = 0;
+      avatarCredits = 0;
     }
   }
 
   return (
     <div className="layout">
-      <Sidebar balanceSeconds={balanceSeconds} email={user?.email ?? ""} />
+      <Sidebar balanceSeconds={balanceSeconds} avatarCredits={avatarCredits} email={user?.email ?? ""} />
       <div className="shell-main">{children}</div>
     </div>
   );
