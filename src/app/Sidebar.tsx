@@ -6,7 +6,7 @@ import { useState } from "react";
 import BrandMark from "./BrandMark";
 import { signOut } from "./login/actions";
 
-type Props = { balanceSeconds: number; avatarCredits: number; email: string };
+type Props = { balanceSeconds: number; avatarCredits: number; isAdmin: boolean; email: string };
 
 const NAV: { href: string; label: string; icon: React.ReactNode }[] = [
   { href: "/studio", label: "Estudio", icon: <IconStudio /> },
@@ -21,7 +21,7 @@ function mmss(total: number) {
   return `${m}m ${s}s`;
 }
 
-export default function Sidebar({ balanceSeconds, avatarCredits, email }: Props) {
+export default function Sidebar({ balanceSeconds, avatarCredits, isAdmin: admin, email }: Props) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -58,6 +58,16 @@ export default function Sidebar({ balanceSeconds, avatarCredits, email }: Props)
               <span>{n.label}</span>
             </Link>
           ))}
+          {admin ? (
+            <Link
+              href="/admin"
+              className={`nav-item${isActive("/admin") ? " active" : ""}`}
+              onClick={() => setOpen(false)}
+            >
+              <IconAdmin />
+              <span>Admin</span>
+            </Link>
+          ) : null}
         </nav>
 
         <div className="sidebar-foot">
@@ -113,6 +123,11 @@ function IconCredits() {
 function IconAvatars() {
   return (
     <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></svg>
+  );
+}
+function IconAdmin() {
+  return (
+    <svg viewBox="0 0 24 24"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" /><path d="M8 11V7a4 4 0 118 0v4" /></svg>
   );
 }
 function IconSignOut() {
