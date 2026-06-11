@@ -17,6 +17,7 @@ import {
   deletePhoto,
   updateAvatar,
 } from "../actions";
+import AppShell from "@/app/AppShell";
 import Toast from "./Toast";
 import VoiceCloning from "./VoiceCloning";
 import VoiceTest from "./VoiceTest";
@@ -62,6 +63,7 @@ export default async function AvatarDetailPage({
   }
 
   return (
+    <AppShell>
     <main className="container wide">
       <p>
         <Link href="/avatars">← Volver a avatares</Link>
@@ -231,5 +233,6 @@ export default async function AvatarDetailPage({
         </form>
       </section>
     </main>
+    </AppShell>
   );
 }

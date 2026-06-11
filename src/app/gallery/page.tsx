@@ -2,9 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountId } from "@/lib/account";
-import { signOut } from "@/app/login/actions";
 import { GENERATED_CONTENT_BUCKET, languageLabel } from "@/lib/avatars";
-import BrandMark from "@/app/BrandMark";
+import AppShell from "@/app/AppShell";
 
 export const dynamic = "force-dynamic";
 
@@ -51,30 +50,18 @@ export default async function GalleryPage() {
   }
 
   return (
-    <main className="container wide">
-      <div className="brand-header">
-        <BrandMark />
-        <div className="row">
-          <Link href="/studio"><button className="secondary" type="button">Estudio</button></Link>
-          <Link href="/gallery"><button className="secondary" type="button">Galería</button></Link>
-          <Link href="/credits"><button className="secondary" type="button">Créditos</button></Link>
-          <Link href="/avatars"><button className="secondary" type="button">Avatares</button></Link>
-          <form action={signOut}>
-            <button className="secondary" type="submit">Salir</button>
-          </form>
-        </div>
-      </div>
+    <AppShell>
+      <main className="container wide">
+        <header className="page-header">
+          <div>
+            <h1 style={{ margin: 0 }}>Galería</h1>
+            <p className="muted" style={{ margin: "4px 0 0" }}>
+              {videos.length} {videos.length === 1 ? "vídeo generado" : "vídeos generados"}.
+            </p>
+          </div>
+        </header>
 
-      <header className="page-header">
-        <div>
-          <h1 style={{ margin: 0 }}>Galería</h1>
-          <p className="muted" style={{ margin: "4px 0 0" }}>
-            {videos.length} {videos.length === 1 ? "vídeo generado" : "vídeos generados"}.
-          </p>
-        </div>
-      </header>
-
-      {videos.length === 0 ? (
+        {videos.length === 0 ? (
         <div className="card empty">
           <p style={{ marginTop: 0 }}>Aún no hay vídeos.</p>
           <p className="muted">Genera tu primer vídeo en el estudio.</p>
@@ -114,7 +101,8 @@ export default async function GalleryPage() {
             );
           })}
         </div>
-      )}
-    </main>
+        )}
+      </main>
+    </AppShell>
   );
 }

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAvatar } from "../actions";
 import { LANGUAGES } from "@/lib/avatars";
+import AppShell from "@/app/AppShell";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ export default async function NewAvatarPage({
   const { error } = await searchParams;
 
   return (
+    <AppShell>
     <main className="container">
       <p>
         <Link href="/avatars">← Volver a avatares</Link>
@@ -73,5 +75,6 @@ export default async function NewAvatarPage({
         </form>
       </div>
     </main>
+    </AppShell>
   );
 }

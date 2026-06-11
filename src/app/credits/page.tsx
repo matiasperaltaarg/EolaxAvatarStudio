@@ -1,11 +1,9 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountId } from "@/lib/account";
-import { signOut } from "@/app/login/actions";
 import { PACKS, getBalanceSeconds, type CreditPack } from "@/lib/credits";
 import { languageLabel } from "@/lib/avatars";
-import BrandMark from "@/app/BrandMark";
+import AppShell from "@/app/AppShell";
 
 export const dynamic = "force-dynamic";
 
@@ -50,20 +48,8 @@ export default async function CreditsPage() {
   const now = Date.now();
 
   return (
+    <AppShell>
     <main className="container wide">
-      <div className="brand-header">
-        <BrandMark />
-        <div className="row">
-          <Link href="/studio"><button className="secondary" type="button">Estudio</button></Link>
-          <Link href="/gallery"><button className="secondary" type="button">Galería</button></Link>
-          <Link href="/credits"><button className="secondary" type="button">Créditos</button></Link>
-          <Link href="/avatars"><button className="secondary" type="button">Avatares</button></Link>
-          <form action={signOut}>
-            <button className="secondary" type="submit">Salir</button>
-          </form>
-        </div>
-      </div>
-
       <header className="page-header">
         <div>
           <h1 style={{ margin: 0 }}>Créditos</h1>
@@ -140,5 +126,6 @@ export default async function CreditsPage() {
         )}
       </section>
     </main>
+    </AppShell>
   );
 }
