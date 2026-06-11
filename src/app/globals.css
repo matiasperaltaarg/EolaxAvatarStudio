@@ -600,19 +600,6 @@ button:not(.secondary):not(.danger-btn):not(.photo-delete):not(.chip):not(.avata
   background: linear-gradient(135deg, var(--brand-accent), var(--brand-accent-2));
 }
 
-/* AI disclosure note near downloads */
-.ai-note {
-  font-size: 12px;
-  color: var(--muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.ai-note::before {
-  content: "✨";
-}
-
 /* Login polish */
 .login-hero {
   text-align: center;

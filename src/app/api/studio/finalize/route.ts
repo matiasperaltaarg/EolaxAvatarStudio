@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authedContext } from "@/lib/studio-auth";
 import { GENERATED_CONTENT_BUCKET } from "@/lib/avatars";
-import { burnVideoMarks } from "@/lib/overlay";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { debitForVideo, secondsToCharge } from "@/lib/credits";
 
@@ -9,9 +8,14 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 // POST /api/studio/finalize
-// Downloads the finished video, burns the optional on-screen text overlay,
-// stores it privately, creates the `videos` row (status='ready'), and returns
-// a signed playback/download URL.
+// Stores the finished WaveSpeed video DIRECTLY (no re-encode / no watermark /
+// no text overlay), creates the `videos` row (status='ready'), debits credits,
+// and returns a signed playback/download URL. This is the success/save point.
+//
+// NOTE: on-screen text overlay is PARKED — the ffmpeg burn step was removed
+// because ffmpeg-static doesn't run in Vercel serverless (ENOENT) and a
+// burned-in watermark isn't acceptable for Eolax's own-brand content. The
+// `overlay_text` column is kept for a future non-serverless-ffmpeg approach.
 export async function POST(request: NextRequest) {
   const ctx = await authedContext();
   if (!ctx) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -26,7 +30,6 @@ export async function POST(request: NextRequest) {
     videoUrl?: string;
     wardrobePresetId?: string | null;
     backgroundPresetId?: string | null;
-    overlayText?: string | null;
   };
   const {
     avatarId,
@@ -38,7 +41,6 @@ export async function POST(request: NextRequest) {
     videoUrl,
     wardrobePresetId,
     backgroundPresetId,
-    overlayText,
   } = body;
 
   if (!avatarId || !jobId || !language || !aspectRatio || !videoUrl) {
@@ -57,20 +59,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // 1. Download the finished video from the generation provider.
+    // 1. Download the finished video from WaveSpeed.
     const res = await fetch(videoUrl);
     if (!res.ok) throw new Error(`Could not download generated video (${res.status}).`);
-    let bytes: Uint8Array = Buffer.from(await res.arrayBuffer());
+    const bytes: Uint8Array = Buffer.from(await res.arrayBuffer());
 
-    // 2. Burn the mandatory "Generated with AI" disclosure mark (every video)
-    //    plus the optional on-screen caption, in one ffmpeg pass. The
-    //    disclosure is a legal requirement, so a failure here fails the
-    //    generation rather than shipping an unmarked video (no charge — the
-    //    debit happens only after a successful insert below).
-    const caption = (overlayText ?? "").trim();
-    bytes = await burnVideoMarks(bytes, { caption, aspectRatio });
-
-    // 3. Store it privately.
+    // 2. Store it privately, exactly as produced (no re-encode).
     const path = `${ctx.accountId}/${avatarId}/${jobId}/video_${language}.mp4`;
     const { error: upErr } = await ctx.supabase.storage
       .from(GENERATED_CONTENT_BUCKET)
@@ -88,7 +82,7 @@ export async function POST(request: NextRequest) {
         aspect_ratio: aspectRatio,
         wardrobe_preset_id: wardrobePresetId ?? null,
         background_preset_id: backgroundPresetId ?? null,
-        overlay_text: caption || null,
+        overlay_text: null, // parked — see note at top of file
         status: "ready",
         duration_seconds: durationSeconds ?? null,
         output_url: path,

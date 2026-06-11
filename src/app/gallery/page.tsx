@@ -69,8 +69,7 @@ export default async function GalleryPage() {
         <div>
           <h1 style={{ margin: 0 }}>Galería</h1>
           <p className="muted" style={{ margin: "4px 0 0" }}>
-            {videos.length} {videos.length === 1 ? "vídeo generado" : "vídeos generados"} ·
-            todos llevan la marca “Generado con IA”.
+            {videos.length} {videos.length === 1 ? "vídeo generado" : "vídeos generados"}.
           </p>
         </div>
       </header>
@@ -107,12 +106,9 @@ export default async function GalleryPage() {
                   </span>
                 </div>
                 {url ? (
-                  <div className="row" style={{ justifyContent: "space-between" }}>
-                    <a href={url} download={`${v.avatars?.name ?? "video"}_${v.language ?? ""}.mp4`}>
-                      <button className="secondary" type="button">Descargar</button>
-                    </a>
-                    <span className="ai-note">Generado con IA</span>
-                  </div>
+                  <a href={url} download={`${v.avatars?.name ?? "video"}_${v.language ?? ""}.mp4`}>
+                    <button className="secondary" type="button">Descargar</button>
+                  </a>
                 ) : null}
               </div>
             );

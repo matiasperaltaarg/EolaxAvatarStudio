@@ -73,10 +73,11 @@ export default function Studio({
   const [languages, setLanguages] = useState<string[]>([]);
   const [aspectRatio, setAspectRatio] = useState("9:16");
 
-  // Look (wardrobe + background presets) and on-screen text.
+  // Look (wardrobe + background presets). On-screen text overlay is PARKED
+  // (removed from the flow — see finalize route note); may return later via a
+  // non-serverless-ffmpeg approach.
   const [wardrobeId, setWardrobeId] = useState<string>("");
   const [backgroundId, setBackgroundId] = useState<string>("");
-  const [overlayText, setOverlayText] = useState("");
   const [lookImageUrl, setLookImageUrl] = useState<string | null>(null);
   const [lookKey, setLookKey] = useState<string>(""); // selection the look image matches
   const [applyingLook, setApplyingLook] = useState(false);
@@ -274,7 +275,7 @@ export default function Studio({
       setStep(code, { step: "video", note: undefined });
       const finishedVideoUrl = await generateVideo(avatar.id, audioUrl, lookUrl, code);
 
-      // d) Finalize (download → burn overlay → store → DB row).
+      // d) Save: store the WaveSpeed video directly + create DB row + debit.
       const fRes = await fetch("/api/studio/finalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -288,7 +289,6 @@ export default function Studio({
           videoUrl: finishedVideoUrl,
           wardrobePresetId: hasLookSelection ? wardrobeId : null,
           backgroundPresetId: hasLookSelection ? backgroundId : null,
-          overlayText: overlayText.trim() || null,
         }),
       });
       const fJson = await fRes.json();
@@ -408,17 +408,14 @@ export default function Studio({
                       </div>
                       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                       <video controls src={r.videoUrl} className="result-video" />
-                      <div className="row" style={{ justifyContent: "space-between" }}>
-                        <a
-                          href={r.videoUrl}
-                          download={`${selectedAvatar?.name ?? "video"}_${r.code}.mp4`}
-                        >
-                          <button className="secondary" type="button">
-                            Descargar
-                          </button>
-                        </a>
-                        <span className="ai-note">Contenido generado con IA</span>
-                      </div>
+                      <a
+                        href={r.videoUrl}
+                        download={`${selectedAvatar?.name ?? "video"}_${r.code}.mp4`}
+                      >
+                        <button className="secondary" type="button">
+                          Descargar
+                        </button>
+                      </a>
                     </div>
                   );
                 })}
@@ -606,25 +603,13 @@ export default function Studio({
           )}
         </section>
 
-        {/* STEP 5 — on-screen text */}
-        <section className="card">
-          <h2>5 · Texto en pantalla</h2>
-          <input
-            type="text"
-            value={overlayText}
-            onChange={(e) => setOverlayText(e.target.value)}
-            placeholder="Texto opcional incrustado en el vídeo"
-            maxLength={120}
-          />
-          <p className="muted small">
-            Opcional. Se incrusta en el vídeo final de forma programática (gratis,
-            sin IA), con borde para legibilidad y posicionado según el formato.
-          </p>
-        </section>
+        {/* On-screen text step PARKED (removed): ffmpeg burn doesn't run in
+            Vercel serverless and a burned-in mark isn't acceptable for Eolax's
+            own-brand content. May return via a non-serverless approach. */}
 
-        {/* STEP 6 — format */}
+        {/* STEP 5 — format */}
         <section className="card">
-          <h2>6 · Formato</h2>
+          <h2>5 · Formato</h2>
           <div className="chips">
             {ASPECT_RATIOS.map((r) => (
               <button
@@ -704,9 +689,6 @@ export default function Studio({
               vídeo generado.
             </p>
           ) : null}
-          <p className="ai-note" style={{ marginTop: 10 }}>
-            Todos los vídeos llevan la marca “Generado con IA”.
-          </p>
         </section>
       </div>
     </div>
