@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authedContext } from "@/lib/studio-auth";
-import { GENERATED_CONTENT_BUCKET } from "@/lib/avatars";
-import { textToSpeechWithDuration } from "@/lib/elevenlabs";
+import { GENERATED_CONTENT_BUCKET, studioLanguage } from "@/lib/avatars";
+import { textToSpeechWithDuration, ELEVENLABS_MODEL_ID } from "@/lib/elevenlabs";
+import { enrichForNaturalSpeech } from "@/lib/openrouter";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -38,11 +39,24 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // For v3, enrich the script with audio tags + expressive punctuation so the
+    // voice sounds natural instead of reading flat. Best-effort: if it fails,
+    // fall back to the raw text. Skipped on v2 (tags only work on v3).
+    let speechText = text;
+    if (ELEVENLABS_MODEL_ID.includes("_v3")) {
+      const englishName = studioLanguage(language)?.english ?? "Spanish";
+      try {
+        speechText = await enrichForNaturalSpeech(text, englishName);
+      } catch {
+        speechText = text;
+      }
+    }
+
     // Actual audio duration (from ElevenLabs character alignment) — used for
     // the videos.duration_seconds column.
     const { audio, durationSeconds } = await textToSpeechWithDuration(
       avatar.elevenlabs_voice_id,
-      text,
+      speechText,
       language
     );
     const path = `${ctx.accountId}/${avatarId}/${jobId}/audio_${language}.mp3`;

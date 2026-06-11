@@ -112,3 +112,30 @@ export async function enrichLookPrompt(freeText: string): Promise<string> {
 
   return chat(system, freeText);
 }
+
+// Enrich a script with ElevenLabs v3 audio tags + expressive punctuation so the
+// cloned voice sounds natural (not flat/robotic) instead of reading verbatim.
+// Runs AFTER translation, on the final-language text, right before TTS.
+// languageEnglishName is used so the director instructions match the language.
+export async function enrichForNaturalSpeech(
+  text: string,
+  languageEnglishName: string
+): Promise<string> {
+  const system = [
+    `You are a voice director preparing a script for ElevenLabs v3 TTS in ${languageEnglishName}.`,
+    "Rewrite the script so it sounds NATURAL and human when spoken, WITHOUT changing",
+    "the meaning, adding facts, or removing content. You may only adjust punctuation",
+    "and insert performance cues. Specifically:",
+    "- Add natural punctuation: commas, periods, ellipses (…) for pauses/hesitation,",
+    "exclamation marks for emphasis, em dashes (—) for interruptions.",
+    "- Insert ElevenLabs audio tags in square brackets where tone calls for it, e.g.",
+    "[warmly], [excited], [serious], [curious], [reassuring], [smiles], [short pause].",
+    "Use AT MOST one tag every 1-2 sentences. Do not overuse them.",
+    "- Keep tags and any cue words in English (the model expects English tags), but the",
+    "spoken script text stays in the original language.",
+    "- Do NOT wrap the output in quotes or add commentary.",
+    "Return ONLY the final script, ready to send to TTS.",
+  ].join(" ");
+
+  return chat(system, text);
+}
