@@ -3,12 +3,16 @@
 
 const API_BASE = "https://api.elevenlabs.io/v1";
 
-// Multilingual model: best generally-available model for multilingual + voice
-// cloning quality. (eleven_v3 is not GA on the standard TTS endpoint; turbo_v2_5
-// trades naturalness for speed — not an upgrade for this use case.) Overridable
-// via env for A/B testing.
+// Eleven v3: most expressive model, designed for natural prosody and audio
+// tags ([excited], [pausa], …). Replaces multilingual_v2 (which read scripts
+// flat/robotic). Works with Instant Voice Clones. Overridable via env so we can
+// fall back to multilingual_v2 if needed for A/B or fidelity issues.
 export const ELEVENLABS_MODEL_ID =
-  process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
+  process.env.ELEVENLABS_MODEL_ID ?? "eleven_v3";
+
+function isV3(modelId: string): boolean {
+  return modelId.includes("_v3");
+}
 
 // High-quality TTS output: 44.1 kHz, 128 kbps MP3 (clean, supported on every
 // plan). Override to mp3_44100_192 on Creator+ tiers for 192 kbps.
@@ -28,11 +32,26 @@ const VOICE_SETTINGS = {
 };
 
 // Voice cloning is done on Spanish samples, so non-Spanish output tends to
-// drift into a wrong/foreign accent. Production guidance: raise stability and
-// drop style to keep the cloned timbre while letting the language_code drive
-// correct pronunciation. Applied only when the target language isn't Spanish.
+// drift into a wrong/foreign accent. We keep the cloned timbre while letting
+// language_code drive correct pronunciation.
+//
+// v3 uses stability MODES ("natural" | "creative" | "robust") instead of v2's
+// numeric slider, has no speaker_boost, and responds to audio tags only when
+// NOT in "robust". We use "natural" for Spanish (closest to the original voice,
+// still expressive) and "robust" for other languages (max timbre stability to
+// fight accent drift; tags matter less there).
 function settingsForLanguage(languageCode?: string) {
   const isSpanish = !languageCode || languageCode.toLowerCase().startsWith("es");
+
+  if (isV3(ELEVENLABS_MODEL_ID)) {
+    return {
+      stability: process.env.ELEVENLABS_V3_STABILITY ?? (isSpanish ? "natural" : "robust"),
+      similarity_boost: numEnv("ELEVENLABS_SIMILARITY", 0.75),
+      style: numEnv(isSpanish ? "ELEVENLABS_STYLE" : "ELEVENLABS_STYLE_NONES", isSpanish ? 0.35 : 0.0),
+    };
+  }
+
+  // v2 (numeric slider + speaker_boost)
   if (isSpanish) return VOICE_SETTINGS;
   return {
     ...VOICE_SETTINGS,
