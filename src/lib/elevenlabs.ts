@@ -35,20 +35,31 @@ const VOICE_SETTINGS = {
 // drift into a wrong/foreign accent. We keep the cloned timbre while letting
 // language_code drive correct pronunciation.
 //
-// v3 uses stability MODES ("natural" | "creative" | "robust") instead of v2's
-// numeric slider, has no speaker_boost, and responds to audio tags only when
-// NOT in "robust". We use "natural" for Spanish (closest to the original voice,
-// still expressive) and "robust" for other languages (max timbre stability to
-// fight accent drift; tags matter less there).
+// v3 uses three discrete stability VALUES (numeric): 0.0 = Creative,
+// 0.5 = Natural, 1.0 = Robust. The UI shows them as names, but the API expects
+// the NUMBER (sending the string "natural" causes an instant 422). v3 has no
+// speaker_boost. We use Natural (0.5) for Spanish — closest to the original
+// voice, still responds to audio tags — and Robust (1.0) for other languages to
+// fight accent drift.
 function settingsForLanguage(languageCode?: string) {
   const isSpanish = !languageCode || languageCode.toLowerCase().startsWith("es");
 
   if (isV3(ELEVENLABS_MODEL_ID)) {
-    return {
-      stability: process.env.ELEVENLABS_V3_STABILITY ?? (isSpanish ? "natural" : "robust"),
+    // Minimal, API-safe v3 settings. stability is NUMERIC (0.5 = Natural).
+    // style and speed are only included when explicitly set via env, to avoid
+    // any field the v3 endpoint might reject. speed (0.7–1.2) replaces the
+    // manual 1.2x CapCut step when set.
+    const s: Record<string, number> = {
+      stability: numEnv("ELEVENLABS_V3_STABILITY", isSpanish ? 0.5 : 1.0),
       similarity_boost: numEnv("ELEVENLABS_SIMILARITY", 0.75),
-      style: numEnv(isSpanish ? "ELEVENLABS_STYLE" : "ELEVENLABS_STYLE_NONES", isSpanish ? 0.35 : 0.0),
     };
+    if (process.env.ELEVENLABS_STYLE !== undefined) {
+      s.style = numEnv("ELEVENLABS_STYLE", 0);
+    }
+    if (process.env.ELEVENLABS_SPEED !== undefined) {
+      s.speed = numEnv("ELEVENLABS_SPEED", 1.0);
+    }
+    return s;
   }
 
   // v2 (numeric slider + speaker_boost)
@@ -143,16 +154,17 @@ export async function textToSpeech(
   return res.arrayBuffer();
 }
 
-// POST /v1/text-to-speech/{voice_id}/with-timestamps. Returns the MP3 bytes
-// plus the ACTUAL audio duration in seconds (from the character alignment),
-// so the video step and the videos.duration_seconds column are accurate.
+// POST /v1/text-to-speech/{voice_id}. Returns the MP3 bytes plus the ACTUAL
+// audio duration in seconds. We use the STANDARD endpoint (compatible with
+// eleven_v3) and measure duration from the MP3 itself, instead of the
+// /with-timestamps endpoint, whose alignment is unreliable/unsupported on v3.
 export async function textToSpeechWithDuration(
   voiceId: string,
   text: string,
   languageCode?: string
 ): Promise<{ audio: Buffer; durationSeconds: number }> {
   const res = await fetch(
-    `${API_BASE}/text-to-speech/${voiceId}/with-timestamps?output_format=${OUTPUT_FORMAT}`,
+    `${API_BASE}/text-to-speech/${voiceId}?output_format=${OUTPUT_FORMAT}`,
     {
       method: "POST",
       headers: {
@@ -172,25 +184,23 @@ export async function textToSpeechWithDuration(
     throw new Error(await readError(res, "Voice generation failed"));
   }
 
-  const json = (await res.json()) as {
-    audio_base64?: string;
-    alignment?: { character_end_times_seconds?: number[] };
-    normalized_alignment?: { character_end_times_seconds?: number[] };
-  };
+  const audio = Buffer.from(await res.arrayBuffer());
+  const durationSeconds = mp3DurationSeconds(audio);
 
-  if (!json.audio_base64) {
-    throw new Error("ElevenLabs returned no audio.");
-  }
+  return { audio, durationSeconds };
+}
 
-  const ends =
-    json.alignment?.character_end_times_seconds ??
-    json.normalized_alignment?.character_end_times_seconds ??
-    [];
-  const last = ends.length > 0 ? ends[ends.length - 1] : 0;
-  // Keep one decimal of precision; never report less than 1s.
-  const durationSeconds = Math.max(1, Math.round(last * 10) / 10);
-
-  return { audio: Buffer.from(json.audio_base64, "base64"), durationSeconds };
+// Estimate MP3 duration (seconds) from the byte size and the CBR bitrate in
+// OUTPUT_FORMAT (e.g. mp3_44100_128 → 128 kbps). For constant-bitrate MP3 this
+// is accurate to a fraction of a second, which is plenty for billing/video.
+function mp3DurationSeconds(audio: Buffer): number {
+  // OUTPUT_FORMAT looks like "mp3_44100_128" → take the trailing kbps.
+  const parts = OUTPUT_FORMAT.split("_");
+  const kbps = Number(parts[parts.length - 1]);
+  const bitsPerSecond = (Number.isFinite(kbps) ? kbps : 128) * 1000;
+  const seconds = (audio.length * 8) / bitsPerSecond;
+  // Keep one decimal; never report less than 1s.
+  return Math.max(1, Math.round(seconds * 10) / 10);
 }
 
 async function readError(res: Response, prefix: string): Promise<string> {
