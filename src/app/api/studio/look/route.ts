@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import { authedContext } from "@/lib/studio-auth";
 import { GENERATED_CONTENT_BUCKET, REFERENCE_PHOTOS_BUCKET } from "@/lib/avatars";
 import { editImage } from "@/lib/replicate";
+import { enrichLookPrompt } from "@/lib/openrouter";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -78,7 +79,8 @@ export async function POST(request: NextRequest) {
   let imagePath: string;
 
   if (isFree) {
-    prompt = `${freePrompt} ${IDENTITY_CLAUSE}`;
+    // prompt is enriched on cache-miss only (LLM call costs money); placeholder here.
+    prompt = "";
     const promptHash = createHash("sha256").update(freePrompt).digest("hex").slice(0, 32);
 
     cacheQuery = ctx.supabase
@@ -147,6 +149,19 @@ export async function POST(request: NextRequest) {
       .from(REFERENCE_PHOTOS_BUCKET)
       .createSignedUrl(firstPhoto, 3600);
     if (!photoSigned?.signedUrl) throw new Error("Could not read the reference photo.");
+
+    // Free-prompt path: enrich the user's casual text into a precise English
+    // kontext instruction (cache-miss only). Falls back to the raw text if the
+    // LLM call fails, so a look is still produced.
+    if (isFree) {
+      let instruction = freePrompt;
+      try {
+        instruction = await enrichLookPrompt(freePrompt);
+      } catch {
+        // keep raw freePrompt
+      }
+      prompt = `${instruction} ${IDENTITY_CLAUSE}`;
+    }
 
     const editedUrl = await editImage({ imageUrl: photoSigned.signedUrl, prompt });
 

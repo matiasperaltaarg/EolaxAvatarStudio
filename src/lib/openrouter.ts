@@ -86,3 +86,29 @@ export async function translateScript(
 
   return chat(system, text);
 }
+
+// Turn a user's free-text look description (often Spanish, colloquial) into a
+// precise English image-EDIT instruction for flux-kontext-pro. kontext follows
+// English far better and rewards explicit, itemized wardrobe/scene language.
+// The identity-preservation clause is added by the route, not here.
+export async function enrichLookPrompt(freeText: string): Promise<string> {
+  const system = [
+    "You convert a user's casual description of how an AI avatar should look",
+    "into ONE precise English instruction for an image-editing model",
+    "(flux-kontext-pro). The user text may be in Spanish (often Rioplatense /",
+    "Argentine) or other languages — always output English.",
+    "Rules:",
+    "- Translate faithfully; map regional clothing words correctly",
+    "(e.g. 'saco' = blazer/suit jacket, 'remera' = t-shirt, 'campera' = jacket).",
+    "- Describe wardrobe and background explicitly, item by item, with colors,",
+    "patterns and materials when given. Be concrete, not flowery.",
+    "- Only describe what to CHANGE (clothing and/or scene). Do NOT describe the",
+    "person's face, age, or body — those must stay as in the source photo.",
+    "- If the user says the scene/background stays the same, do not mention the",
+    "background at all.",
+    "- One sentence, imperative, no preamble, no quotes, under 80 words.",
+    "Return ONLY the instruction.",
+  ].join(" ");
+
+  return chat(system, freeText);
+}
