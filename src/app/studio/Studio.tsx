@@ -435,7 +435,7 @@ export default function Studio({
       <div className="studio-col">
         {/* STEP 1 — avatar */}
         <section className="card">
-          <h2>1 · Elige el avatar</h2>
+          <h2><span className="step-n">1</span>Elige el avatar</h2>
           <div className="avatar-cards">
             {avatars.map((a) => {
               const disabled = !a.hasVoice;
@@ -464,7 +464,7 @@ export default function Studio({
 
         {/* STEP 2 — script */}
         <section className="card">
-          <h2>2 · Escribe el guion</h2>
+          <h2><span className="step-n">2</span>Escribe el guion</h2>
           <textarea
             rows={5}
             value={script}
@@ -512,7 +512,7 @@ export default function Studio({
 
         {/* STEP 3 — languages */}
         <section className="card">
-          <h2>3 · Idiomas</h2>
+          <h2><span className="step-n">3</span>Idiomas</h2>
           <div className="chips">
             {STUDIO_LANGUAGES.map((l) => (
               <button
@@ -536,7 +536,7 @@ export default function Studio({
 
         {/* STEP 4 — look (wardrobe + background presets) */}
         <section className="card">
-          <h2>4 · Apariencia</h2>
+          <h2><span className="step-n">4</span>Apariencia</h2>
           {!selectedAvatar ? (
             <p className="muted small">Elige un avatar para definir su apariencia.</p>
           ) : selectedAvatar.wardrobe.length === 0 &&
@@ -609,7 +609,7 @@ export default function Studio({
 
         {/* STEP 5 — format */}
         <section className="card">
-          <h2>5 · Formato</h2>
+          <h2><span className="step-n">5</span>Formato</h2>
           <div className="chips">
             {ASPECT_RATIOS.map((r) => (
               <button
