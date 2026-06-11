@@ -628,3 +628,27 @@ button:not(.secondary):not(.danger-btn):not(.photo-delete):not(.chip):not(.avata
     font-size: 32px;
   }
 }
+
+/* Voice recorder ---------------------------------------------------------- */
+.record-script {
+  white-space: pre-line;
+  background: #0b0b0f;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 12px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.record-timer {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.record-timer.recording {
+  color: #ff6b6b;
+}
