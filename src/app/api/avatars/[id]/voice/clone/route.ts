@@ -4,13 +4,18 @@ import { getAccountId } from "@/lib/account";
 import { VOICE_REFERENCES_BUCKET } from "@/lib/avatars";
 import { addVoice, deleteVoice } from "@/lib/elevenlabs";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 function sanitize(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-// POST /api/avatars/[id]/voice/clone
-// Uploads the reference audio to a private bucket and clones the voice via
-// ElevenLabs. One voice per avatar: re-cloning deletes the previous voice.
+// POST /api/avatars/[id]/voice/clone  { storagePaths: string[] }
+// The browser uploads the reference audio DIRECTLY to Supabase Storage (so the
+// large WAV never hits this route's body, which on Vercel is capped at ~4.5MB).
+// This route then downloads those files server-side and clones via ElevenLabs.
+// One voice per avatar: re-cloning deletes the previous voice.
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -48,34 +53,36 @@ export async function POST(
     );
   }
 
-  const form = await request.formData();
-  const files = form.getAll("audio").filter((f): f is File => f instanceof File && f.size > 0);
-  if (files.length === 0) {
+  const { storagePaths } = (await request.json().catch(() => ({}))) as {
+    storagePaths?: string[];
+  };
+
+  // Only accept paths inside this account+avatar prefix (no traversal/abuse).
+  const prefix = `${accountId}/${id}/`;
+  const paths = (storagePaths ?? []).filter(
+    (p) => typeof p === "string" && p.startsWith(prefix)
+  );
+  if (paths.length === 0) {
     return NextResponse.json(
-      { error: "Upload at least one audio sample." },
+      { error: "No uploaded audio reference was provided." },
       { status: 400 }
     );
   }
 
-  // 1. Store the reference audio in the private bucket.
-  const storedPaths: string[] = [];
-  for (const file of files) {
-    const dot = file.name.lastIndexOf(".");
-    const ext = dot >= 0 ? file.name.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, "") : "mp3";
-    const path = `${accountId}/${id}/${crypto.randomUUID()}.${ext || "mp3"}`;
-    const { error: upErr } = await supabase.storage
+  // 1. Download the uploaded reference audio from storage (server-side).
+  const files: File[] = [];
+  for (const path of paths) {
+    const { data: blob, error: dlErr } = await supabase.storage
       .from(VOICE_REFERENCES_BUCKET)
-      .upload(path, file, {
-        contentType: file.type || "audio/mpeg",
-        upsert: false,
-      });
-    if (upErr) {
+      .download(path);
+    if (dlErr || !blob) {
       return NextResponse.json(
-        { error: `Failed to store audio: ${upErr.message}` },
-        { status: 500 }
+        { error: `Could not read the uploaded audio: ${dlErr?.message ?? "missing"}` },
+        { status: 400 }
       );
     }
-    storedPaths.push(path);
+    const name = path.split("/").pop() || "sample.wav";
+    files.push(new File([blob], name, { type: blob.type || "audio/wav" }));
   }
 
   try {
@@ -94,7 +101,7 @@ export async function POST(
       .from("avatars")
       .update({
         elevenlabs_voice_id: voiceId,
-        voice_reference_paths: storedPaths,
+        voice_reference_paths: paths,
       })
       .eq("id", id);
 
@@ -102,15 +109,16 @@ export async function POST(
       throw new Error(updateErr.message);
     }
 
-    // Best-effort cleanup of superseded reference audio.
-    if (oldPaths.length > 0) {
-      await supabase.storage.from(VOICE_REFERENCES_BUCKET).remove(oldPaths);
+    // Best-effort cleanup of superseded reference audio (not the new ones).
+    const supersededPaths = oldPaths.filter((p) => !paths.includes(p));
+    if (supersededPaths.length > 0) {
+      await supabase.storage.from(VOICE_REFERENCES_BUCKET).remove(supersededPaths);
     }
 
     return NextResponse.json({ voice_id: voiceId });
   } catch (e) {
     // Roll back the just-uploaded audio so storage doesn't leak on failure.
-    await supabase.storage.from(VOICE_REFERENCES_BUCKET).remove(storedPaths);
+    await supabase.storage.from(VOICE_REFERENCES_BUCKET).remove(paths);
     const message = e instanceof Error ? e.message : "Voice cloning failed.";
     return NextResponse.json({ error: message }, { status: 502 });
   }

@@ -174,6 +174,7 @@ export default async function AvatarDetailPage({
       {/* Voice cloning ----------------------------------------------------- */}
       <VoiceCloning
         avatarId={avatar.id}
+        accountId={accountId}
         hasRights={avatar.rights_confirmed}
         existingVoiceId={avatar.elevenlabs_voice_id}
       />
