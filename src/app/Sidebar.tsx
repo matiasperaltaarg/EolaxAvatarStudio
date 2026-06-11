@@ -9,6 +9,7 @@ import { signOut } from "./login/actions";
 type Props = { balanceSeconds: number; avatarCredits: number; isAdmin: boolean; email: string };
 
 const NAV: { href: string; label: string; icon: React.ReactNode }[] = [
+  { href: "/", label: "Panel", icon: <IconPanel /> },
   { href: "/studio", label: "Estudio", icon: <IconStudio /> },
   { href: "/gallery", label: "Galería", icon: <IconGallery /> },
   { href: "/credits", label: "Créditos", icon: <IconCredits /> },
@@ -25,7 +26,8 @@ export default function Sidebar({ balanceSeconds, avatarCredits, isAdmin: admin,
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
+  const isActive = (href: string) =>
+    href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
   // Decorative fill: balance against the largest pack (Scale = 3600s).
   const fill = Math.min(100, Math.round((balanceSeconds / 3600) * 100));
   const initial = (email[0] ?? "E").toUpperCase();
@@ -108,6 +110,11 @@ export default function Sidebar({ balanceSeconds, avatarCredits, isAdmin: admin,
 function IconStudio() {
   return (
     <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M10 9l5 3-5 3V9z" /></svg>
+  );
+}
+function IconPanel() {
+  return (
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="10" rx="1" /><rect x="13" y="3" width="8" height="6" rx="1" /><rect x="13" y="11" width="8" height="10" rx="1" /><rect x="3" y="15" width="8" height="6" rx="1" /></svg>
   );
 }
 function IconGallery() {
