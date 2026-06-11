@@ -3,14 +3,35 @@
 
 const API_BASE = "https://api.elevenlabs.io/v1";
 
-// Multilingual model for ES/EN/PT/IT support (CLAUDE.md §2).
-export const ELEVENLABS_MODEL_ID = "eleven_multilingual_v2";
+// Multilingual model: best generally-available model for multilingual + voice
+// cloning quality. (eleven_v3 is not GA on the standard TTS endpoint; turbo_v2_5
+// trades naturalness for speed — not an upgrade for this use case.) Overridable
+// via env for A/B testing.
+export const ELEVENLABS_MODEL_ID =
+  process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2";
 
-// High-quality TTS output: 44.1 kHz, 128 kbps MP3 (clean, non-choppy, and
-// supported on every plan). Override to mp3_44100_192 on Creator+ tiers for
-// 192 kbps. This is what InfiniteTalk expects (standard 44.1 kHz MP3); it
-// resamples internally, so no sample-rate param is needed on its side.
+// High-quality TTS output: 44.1 kHz, 128 kbps MP3 (clean, supported on every
+// plan). Override to mp3_44100_192 on Creator+ tiers for 192 kbps.
 const OUTPUT_FORMAT = process.env.ELEVENLABS_OUTPUT_FORMAT ?? "mp3_44100_128";
+
+// Voice settings — tuned for natural, expressive speech (robotic output is
+// usually stability set too high). Easy to A/B via env overrides.
+//   stability        lower = more expressive/varied, higher = flatter/robotic
+//   similarity_boost  adherence to the cloned voice timbre
+//   style             stylistic exaggeration (0 = none)
+//   use_speaker_boost  boosts similarity to the original speaker
+const VOICE_SETTINGS = {
+  stability: numEnv("ELEVENLABS_STABILITY", 0.45),
+  similarity_boost: numEnv("ELEVENLABS_SIMILARITY", 0.75),
+  style: numEnv("ELEVENLABS_STYLE", 0.35),
+  use_speaker_boost: process.env.ELEVENLABS_SPEAKER_BOOST !== "false",
+};
+
+function numEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const n = raw === undefined ? NaN : Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 function getApiKey(): string {
   const key = process.env.ELEVENLABS_API_KEY;
@@ -78,6 +99,7 @@ export async function textToSpeech(
     body: JSON.stringify({
       text,
       model_id: ELEVENLABS_MODEL_ID,
+      voice_settings: VOICE_SETTINGS,
     }),
   });
 
@@ -103,7 +125,11 @@ export async function textToSpeechWithDuration(
         "xi-api-key": getApiKey(),
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ text, model_id: ELEVENLABS_MODEL_ID }),
+      body: JSON.stringify({
+        text,
+        model_id: ELEVENLABS_MODEL_ID,
+        voice_settings: VOICE_SETTINGS,
+      }),
     }
   );
 
