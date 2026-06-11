@@ -42,7 +42,8 @@ export async function POST(request: NextRequest) {
     // the videos.duration_seconds column.
     const { audio, durationSeconds } = await textToSpeechWithDuration(
       avatar.elevenlabs_voice_id,
-      text
+      text,
+      language
     );
     const path = `${ctx.accountId}/${avatarId}/${jobId}/audio_${language}.mp3`;
 

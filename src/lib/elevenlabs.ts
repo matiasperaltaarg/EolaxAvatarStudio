@@ -27,6 +27,20 @@ const VOICE_SETTINGS = {
   use_speaker_boost: process.env.ELEVENLABS_SPEAKER_BOOST !== "false",
 };
 
+// Voice cloning is done on Spanish samples, so non-Spanish output tends to
+// drift into a wrong/foreign accent. Production guidance: raise stability and
+// drop style to keep the cloned timbre while letting the language_code drive
+// correct pronunciation. Applied only when the target language isn't Spanish.
+function settingsForLanguage(languageCode?: string) {
+  const isSpanish = !languageCode || languageCode.toLowerCase().startsWith("es");
+  if (isSpanish) return VOICE_SETTINGS;
+  return {
+    ...VOICE_SETTINGS,
+    stability: numEnv("ELEVENLABS_STABILITY_NONES", 0.75),
+    style: numEnv("ELEVENLABS_STYLE_NONES", 0.0),
+  };
+}
+
 function numEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   const n = raw === undefined ? NaN : Number(raw);
@@ -115,7 +129,8 @@ export async function textToSpeech(
 // so the video step and the videos.duration_seconds column are accurate.
 export async function textToSpeechWithDuration(
   voiceId: string,
-  text: string
+  text: string,
+  languageCode?: string
 ): Promise<{ audio: Buffer; durationSeconds: number }> {
   const res = await fetch(
     `${API_BASE}/text-to-speech/${voiceId}/with-timestamps?output_format=${OUTPUT_FORMAT}`,
@@ -128,7 +143,8 @@ export async function textToSpeechWithDuration(
       body: JSON.stringify({
         text,
         model_id: ELEVENLABS_MODEL_ID,
-        voice_settings: VOICE_SETTINGS,
+        ...(languageCode ? { language_code: languageCode } : {}),
+        voice_settings: settingsForLanguage(languageCode),
       }),
     }
   );
