@@ -2,20 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { authedContext } from "@/lib/studio-auth";
 import { GENERATED_CONTENT_BUCKET } from "@/lib/avatars";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { debitForVideo, secondsToCharge } from "@/lib/credits";
+import { atomicDebitForVideo, secondsToCharge } from "@/lib/credits";
+import { logApiUsage } from "@/lib/usageLog";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// POST /api/studio/finalize
-// Stores the finished WaveSpeed video DIRECTLY (no re-encode / no watermark /
-// no text overlay), creates the `videos` row (status='ready'), debits credits,
-// and returns a signed playback/download URL. This is the success/save point.
-//
-// NOTE: on-screen text overlay is PARKED — the ffmpeg burn step was removed
-// because ffmpeg-static doesn't run in Vercel serverless (ENOENT) and a
-// burned-in watermark isn't acceptable for Eolax's own-brand content. The
-// `overlay_text` column is kept for a future non-serverless-ffmpeg approach.
 export async function POST(request: NextRequest) {
   const ctx = await authedContext();
   if (!ctx) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -47,7 +39,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing finalize parameters." }, { status: 400 });
   }
 
-  // Ownership check.
   const { data: avatar } = await ctx.supabase
     .from("avatars")
     .select("id")
@@ -59,20 +50,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // 1. Download the finished video from WaveSpeed.
     const res = await fetch(videoUrl);
     if (!res.ok) throw new Error(`Could not download generated video (${res.status}).`);
     const bytes: Uint8Array = Buffer.from(await res.arrayBuffer());
 
-    // 2. Store it privately, exactly as produced (no re-encode).
     const path = `${ctx.accountId}/${avatarId}/${jobId}/video_${language}.mp4`;
     const { error: upErr } = await ctx.supabase.storage
       .from(GENERATED_CONTENT_BUCKET)
       .upload(path, bytes, { contentType: "video/mp4", upsert: true });
     if (upErr) throw new Error(upErr.message);
 
-    // 3. Record the video row (output_url stores the storage path; signed URLs
-    //    are generated on demand for playback since they expire).
     const { data: video, error: insErr } = await ctx.supabase
       .from("videos")
       .insert({
@@ -82,7 +69,7 @@ export async function POST(request: NextRequest) {
         aspect_ratio: aspectRatio,
         wardrobe_preset_id: wardrobePresetId ?? null,
         background_preset_id: backgroundPresetId ?? null,
-        overlay_text: null, // parked — see note at top of file
+        overlay_text: null,
         status: "ready",
         duration_seconds: durationSeconds ?? null,
         output_url: path,
@@ -91,20 +78,31 @@ export async function POST(request: NextRequest) {
       .single();
     if (insErr || !video) throw new Error(insErr?.message ?? "Could not save the video.");
 
-    // 4. Debit credits for this completed video (server-side, exactly once).
-    //    A failed generation never reaches here, so it is never charged.
+    // Atomic debit: checks balance + claims + debits in one Postgres transaction.
     let secondsCharged = 0;
+    const admin = createAdminClient();
     try {
-      const admin = createAdminClient();
       const charge = secondsToCharge(durationSeconds);
-      const result = await debitForVideo(admin, ctx.accountId, video.id, charge);
+      const result = await atomicDebitForVideo(admin, ctx.accountId, video.id, charge);
       secondsCharged = result.secondsCharged;
+      if (!result.charged) {
+        console.warn(
+          `[credits] atomic debit returned charged=false for video ${video.id} ` +
+            `(account ${ctx.accountId}, ${charge}s). Video saved but not charged.`
+        );
+      }
     } catch (e) {
-      // Don't fail the whole generation if the debit hiccups — log loudly.
-      console.error(`[credits] debit failed for video ${video.id}: ${String(e)}`);
+      console.error(`[credits] atomic debit failed for video ${video.id}: ${String(e)}`);
     }
 
-    // 5. Return a signed URL for immediate playback/download.
+    await logApiUsage(admin, {
+      accountId: ctx.accountId,
+      provider: "internal",
+      route: "finalize",
+      costUsdEst: 0,
+      status: "ok",
+    });
+
     const { data: signed } = await ctx.supabase.storage
       .from(GENERATED_CONTENT_BUCKET)
       .createSignedUrl(path, 3600);

@@ -4,6 +4,9 @@ import { authedContext } from "@/lib/studio-auth";
 import { GENERATED_CONTENT_BUCKET, REFERENCE_PHOTOS_BUCKET } from "@/lib/avatars";
 import { editImage } from "@/lib/replicate";
 import { enrichLookPrompt } from "@/lib/openrouter";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { logApiUsage } from "@/lib/usageLog";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -31,6 +34,15 @@ function sanitizePrompt(raw: unknown): string {
 export async function POST(request: NextRequest) {
   const ctx = await authedContext();
   if (!ctx) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+
+  const admin = createAdminClient();
+  const rl = await checkRateLimit(admin, ctx.accountId, "look", { perMinute: 20 });
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Demasiadas solicitudes de apariencia. Intenta en un minuto." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+    );
+  }
 
   const body = (await request.json().catch(() => ({}))) as {
     avatarId?: string;
@@ -192,6 +204,14 @@ export async function POST(request: NextRequest) {
 
     const editedUrl = await editImage({ imageUrl: photoSigned.signedUrl, prompt });
 
+    await logApiUsage(admin, {
+      accountId: ctx.accountId,
+      provider: "replicate",
+      route: "look",
+      costUsdEst: 0.025,
+      status: "ok",
+    });
+
     const res = await fetch(editedUrl);
     if (!res.ok) throw new Error(`Could not download the edited image (${res.status}).`);
     const bytes = Buffer.from(await res.arrayBuffer());
@@ -216,6 +236,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ imageUrl: signed?.signedUrl ?? null, cached: false });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not apply the look.";
+    await logApiUsage(admin, {
+      accountId: ctx.accountId,
+      provider: "replicate",
+      route: "look",
+      costUsdEst: 0,
+      status: "error",
+      errorMsg: message.slice(0, 500),
+    });
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

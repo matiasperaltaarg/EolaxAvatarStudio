@@ -304,12 +304,13 @@ export default function Studio({
   async function submitAndPoll(
     avatarId: string,
     audioUrl: string,
-    imageUrl: string | null
+    imageUrl: string | null,
+    durationSeconds: number | undefined
   ): Promise<string> {
     const sRes = await fetch("/api/studio/video/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ avatarId, audioUrl, imageUrl }),
+      body: JSON.stringify({ avatarId, audioUrl, imageUrl, durationSeconds }),
     });
     const sJson = await sRes.json();
     if (!sRes.ok) throw new Error(sJson.error ?? "Could not start video.");
@@ -338,7 +339,8 @@ export default function Studio({
     avatarId: string,
     audioUrl: string,
     imageUrl: string | null,
-    code: string
+    code: string,
+    durationSeconds: number | undefined
   ): Promise<string> {
     let lastError = "";
     for (let attempt = 1; attempt <= MAX_VIDEO_ATTEMPTS; attempt++) {
@@ -346,7 +348,7 @@ export default function Studio({
         if (attempt > 1) {
           setStep(code, { step: "video", note: `retry ${attempt}/${MAX_VIDEO_ATTEMPTS}…` });
         }
-        return await submitAndPoll(avatarId, audioUrl, imageUrl);
+        return await submitAndPoll(avatarId, audioUrl, imageUrl, durationSeconds);
       } catch (e) {
         lastError = e instanceof Error ? e.message : "Video failed.";
         if (attempt < MAX_VIDEO_ATTEMPTS && isTransientVideoError(lastError)) {
@@ -389,7 +391,7 @@ export default function Studio({
       //    WaveSpeed startup failures. No single request waits for the render;
       //    the client just keeps polling each fast status call.
       setStep(code, { step: "video", note: undefined });
-      const finishedVideoUrl = await generateVideo(avatar.id, audioUrl, lookUrl, code);
+      const finishedVideoUrl = await generateVideo(avatar.id, audioUrl, lookUrl, code, durationSeconds);
 
       // d) Save: store the WaveSpeed video directly + create DB row + debit.
       const fRes = await fetch("/api/studio/finalize", {

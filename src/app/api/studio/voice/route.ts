@@ -3,13 +3,13 @@ import { authedContext } from "@/lib/studio-auth";
 import { GENERATED_CONTENT_BUCKET, studioLanguage } from "@/lib/avatars";
 import { textToSpeechWithDuration, ELEVENLABS_MODEL_ID } from "@/lib/elevenlabs";
 import { enrichForNaturalSpeech } from "@/lib/openrouter";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { logApiUsage } from "@/lib/usageLog";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// POST /api/studio/voice  { avatarId, jobId, language, text }
-// Generates TTS with the avatar's cloned voice, stores the mp3 privately and
-// returns a signed URL plus an estimated duration.
 export async function POST(request: NextRequest) {
   const ctx = await authedContext();
   if (!ctx) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -22,6 +22,16 @@ export async function POST(request: NextRequest) {
   };
   if (!avatarId || !jobId || !language || !text?.trim()) {
     return NextResponse.json({ error: "Missing voice generation parameters." }, { status: 400 });
+  }
+
+  const admin = createAdminClient();
+
+  const rl = await checkRateLimit(admin, ctx.accountId, "voice", { perMinute: 20 });
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Demasiadas solicitudes de voz. Intenta en un minuto." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+    );
   }
 
   const { data: avatar } = await ctx.supabase
@@ -39,9 +49,6 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // For v3, enrich the script with audio tags + expressive punctuation so the
-    // voice sounds natural instead of reading flat. Best-effort: if it fails,
-    // fall back to the raw text. Skipped on v2 (tags only work on v3).
     let speechText = text;
     if (ELEVENLABS_MODEL_ID.includes("_v3")) {
       const englishName = studioLanguage(language)?.english ?? "Spanish";
@@ -52,8 +59,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Actual audio duration (from ElevenLabs character alignment) — used for
-    // the videos.duration_seconds column.
     const { audio, durationSeconds } = await textToSpeechWithDuration(
       avatar.elevenlabs_voice_id,
       speechText,
@@ -70,6 +75,16 @@ export async function POST(request: NextRequest) {
       .from(GENERATED_CONTENT_BUCKET)
       .createSignedUrl(path, 3600);
 
+    const charCount = text.length;
+    const costEst = (charCount / 1_000_000) * 0.3;
+    await logApiUsage(admin, {
+      accountId: ctx.accountId,
+      provider: "elevenlabs",
+      route: "voice",
+      costUsdEst: Math.round(costEst * 10000) / 10000,
+      status: "ok",
+    });
+
     return NextResponse.json({
       audioPath: path,
       audioUrl: signed?.signedUrl ?? null,
@@ -77,6 +92,16 @@ export async function POST(request: NextRequest) {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Voice generation failed.";
+
+    await logApiUsage(admin, {
+      accountId: ctx.accountId,
+      provider: "elevenlabs",
+      route: "voice",
+      costUsdEst: 0,
+      status: "error",
+      errorMsg: message.slice(0, 500),
+    });
+
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }
