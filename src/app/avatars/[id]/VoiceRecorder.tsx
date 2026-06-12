@@ -121,6 +121,13 @@ export default function VoiceRecorder({ busy, onSubmit }: Props) {
         Busca una sala silenciosa, habla cerca del micrófono, evita el eco y lee
         el guion completo con naturalidad. Mínimo recomendado: {MIN_SECONDS}s.
       </p>
+      <p className="muted small">
+        <b>Importante para el acento:</b> hablá con tu acento natural y tu ritmo
+        habitual. El clon imita exactamente cómo hablás en esta grabación, así que
+        si querés conservar tu acento (rioplatense, colombiano, etc.), pronunciá
+        con naturalidad sin "neutralizar". Variá la entonación: incluí una frase
+        animada y una más calmada para que el clon capte tu rango.
+      </p>
 
       <div className="record-script">{SCRIPT}</div>
 

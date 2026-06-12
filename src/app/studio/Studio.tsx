@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   ASPECT_RATIOS,
   STUDIO_LANGUAGES,
+  STUDIO_ACCENTS,
   REFERENCE_PHOTOS_BUCKET,
   estimateDurationSeconds,
   studioLanguage,
@@ -76,6 +77,7 @@ export default function Studio({
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [improveError, setImproveError] = useState<string | null>(null);
   const [languages, setLanguages] = useState<string[]>([]);
+  const [accent, setAccent] = useState<string>("");
   const [aspectRatio, setAspectRatio] = useState("9:16");
 
   // Look (wardrobe + background presets). On-screen text overlay is PARKED
@@ -304,12 +306,13 @@ export default function Studio({
   async function submitAndPoll(
     avatarId: string,
     audioUrl: string,
-    imageUrl: string | null
+    imageUrl: string | null,
+    durationSeconds: number | undefined
   ): Promise<string> {
     const sRes = await fetch("/api/studio/video/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ avatarId, audioUrl, imageUrl }),
+      body: JSON.stringify({ avatarId, audioUrl, imageUrl, durationSeconds }),
     });
     const sJson = await sRes.json();
     if (!sRes.ok) throw new Error(sJson.error ?? "Could not start video.");
@@ -338,7 +341,8 @@ export default function Studio({
     avatarId: string,
     audioUrl: string,
     imageUrl: string | null,
-    code: string
+    code: string,
+    durationSeconds: number | undefined
   ): Promise<string> {
     let lastError = "";
     for (let attempt = 1; attempt <= MAX_VIDEO_ATTEMPTS; attempt++) {
@@ -346,7 +350,7 @@ export default function Studio({
         if (attempt > 1) {
           setStep(code, { step: "video", note: `retry ${attempt}/${MAX_VIDEO_ATTEMPTS}…` });
         }
-        return await submitAndPoll(avatarId, audioUrl, imageUrl);
+        return await submitAndPoll(avatarId, audioUrl, imageUrl, durationSeconds);
       } catch (e) {
         lastError = e instanceof Error ? e.message : "Video failed.";
         if (attempt < MAX_VIDEO_ATTEMPTS && isTransientVideoError(lastError)) {
@@ -378,7 +382,7 @@ export default function Studio({
       const vRes = await fetch("/api/studio/voice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ avatarId: avatar.id, jobId, language: code, text: translated }),
+        body: JSON.stringify({ avatarId: avatar.id, jobId, language: code, text: translated, accent }),
       });
       const vJson = await vRes.json();
       if (!vRes.ok) throw new Error(`Voice: ${vJson.error}`);
@@ -389,7 +393,7 @@ export default function Studio({
       //    WaveSpeed startup failures. No single request waits for the render;
       //    the client just keeps polling each fast status call.
       setStep(code, { step: "video", note: undefined });
-      const finishedVideoUrl = await generateVideo(avatar.id, audioUrl, lookUrl, code);
+      const finishedVideoUrl = await generateVideo(avatar.id, audioUrl, lookUrl, code, durationSeconds);
 
       // d) Save: store the WaveSpeed video directly + create DB row + debit.
       const fRes = await fetch("/api/studio/finalize", {
@@ -738,6 +742,28 @@ export default function Studio({
           <p className="muted small">
             Tu guion se traducirá y se hablará en cada idioma con la voz clonada.
           </p>
+
+          {languages.some((c) => c.toLowerCase().startsWith("es")) ? (
+            <div style={{ marginTop: 12 }}>
+              <label htmlFor="accent">Acento (solo español)</label>
+              <select
+                id="accent"
+                value={accent}
+                onChange={(e) => setAccent(e.target.value)}
+              >
+                {STUDIO_ACCENTS.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+              <p className="muted small" style={{ marginTop: 6 }}>
+                Por defecto se respeta la voz original. Elegir un acento regional es
+                aproximado: el modelo hace bien las familias generales, las variantes
+                muy finas pueden no ser exactas.
+              </p>
+            </div>
+          ) : null}
         </section>
 
         {/* STEP 4 — look (wardrobe + background presets) */}

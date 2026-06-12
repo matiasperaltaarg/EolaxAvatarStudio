@@ -94,6 +94,33 @@ export async function debitForVideo(
   return { charged: true, secondsCharged: seconds };
 }
 
+// Atomic video credit debit via Postgres function (migration 0010).
+// Checks balance + claims log + debits FIFO in a single transaction.
+// If insufficient balance, returns charged=false WITHOUT inserting a log row.
+export async function atomicDebitForVideo(
+  admin: SupabaseClient,
+  accountId: string,
+  videoId: string,
+  seconds: number
+): Promise<{ charged: boolean; secondsCharged: number }> {
+  const { data, error } = await admin.rpc("debit_video_seconds", {
+    p_account_id: accountId,
+    p_video_id: videoId,
+    p_seconds: seconds,
+  });
+
+  if (error) {
+    console.error(`[credits] atomic debit RPC failed: ${error.message}`);
+    throw new Error(`Atomic debit failed: ${error.message}`);
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    charged: row?.charged ?? false,
+    secondsCharged: row?.seconds_charged ?? 0,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Avatar credits — second currency
 // ---------------------------------------------------------------------------

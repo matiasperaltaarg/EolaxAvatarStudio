@@ -2,18 +2,26 @@ import { NextResponse, type NextRequest } from "next/server";
 import { authedContext } from "@/lib/studio-auth";
 import { REFERENCE_PHOTOS_BUCKET } from "@/lib/avatars";
 import { fuseFaceAndBody } from "@/lib/replicate";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { logApiUsage } from "@/lib/usageLog";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-// POST /api/studio/fuse  { avatarId, bodyPath, facePath }
-// Fuses a high-fidelity FACE photo onto a BODY/POSE photo (both already uploaded
-// to Storage by the browser) so the talking-head video keeps the real person's
-// likeness on a full-body shot. Returns a signed URL + the stored path of the
-// fused image, which the Studio then uses as the video's base photo.
 export async function POST(request: NextRequest) {
   const ctx = await authedContext();
   if (!ctx) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+
+  const admin = createAdminClient();
+
+  const rl = await checkRateLimit(admin, ctx.accountId, "fuse", { perMinute: 10 });
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Demasiadas solicitudes de fusión. Intenta en un minuto." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+    );
+  }
 
   const { avatarId, bodyPath, facePath } = (await request.json().catch(() => ({}))) as {
     avatarId?: string;
@@ -28,13 +36,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Only accept paths inside this account+avatar prefix (anti-traversal).
   const prefix = `${ctx.accountId}/${avatarId}/`;
   if (!bodyPath.startsWith(prefix) || !facePath.startsWith(prefix)) {
     return NextResponse.json({ error: "Invalid photo paths." }, { status: 400 });
   }
 
-  // Verify the avatar belongs to this account.
   const { data: avatar } = await ctx.supabase
     .from("avatars")
     .select("id")
@@ -44,7 +50,6 @@ export async function POST(request: NextRequest) {
   if (!avatar) return NextResponse.json({ error: "Avatar not found." }, { status: 404 });
 
   try {
-    // Sign both uploaded photos so Replicate can read them.
     const [bodySigned, faceSigned] = await Promise.all([
       ctx.supabase.storage.from(REFERENCE_PHOTOS_BUCKET).createSignedUrl(bodyPath, 3600),
       ctx.supabase.storage.from(REFERENCE_PHOTOS_BUCKET).createSignedUrl(facePath, 3600),
@@ -53,13 +58,19 @@ export async function POST(request: NextRequest) {
       throw new Error("Could not read the uploaded photos.");
     }
 
-    // Fuse face onto body via multi-image kontext.
     const fusedUrl = await fuseFaceAndBody({
       bodyUrl: bodySigned.data.signedUrl,
       faceUrl: faceSigned.data.signedUrl,
     });
 
-    // Download the fused image and store it for this video (not saved to avatar).
+    await logApiUsage(admin, {
+      accountId: ctx.accountId,
+      provider: "replicate",
+      route: "fuse",
+      costUsdEst: 0.03,
+      status: "ok",
+    });
+
     const imgRes = await fetch(fusedUrl);
     if (!imgRes.ok) throw new Error(`Could not download the fused image (${imgRes.status}).`);
     const bytes = Buffer.from(await imgRes.arrayBuffer());
@@ -80,6 +91,14 @@ export async function POST(request: NextRequest) {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Face fusion failed.";
+    await logApiUsage(admin, {
+      accountId: ctx.accountId,
+      provider: "replicate",
+      route: "fuse",
+      costUsdEst: 0,
+      status: "error",
+      errorMsg: message.slice(0, 500),
+    });
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }
