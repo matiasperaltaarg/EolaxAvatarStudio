@@ -1077,3 +1077,37 @@ button.danger-btn {
   opacity: 0.6;
   cursor: progress;
 }
+
+/* ---- Studio face+body fusion ---- */
+.fuse-block {
+  margin-top: 12px;
+  border-top: 1px solid var(--line-solid);
+  padding-top: 10px;
+}
+.fuse-block summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--violet);
+  font-weight: 600;
+}
+.fuse-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0;
+}
+.fuse-slot {
+  flex: 1;
+  min-width: 160px;
+  padding: 12px;
+  border: 1px dashed var(--line-solid);
+  border-radius: 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: center;
+  background: var(--panel-2);
+}
+.fuse-slot:hover {
+  border-color: var(--violet);
+}
