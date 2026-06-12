@@ -28,10 +28,12 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  // Rate limit: max 3 concurrent (20-min window), max 10 per minute.
+  // Rate limit: protects against runaway cost loops, not normal use.
+  // Eolax is a company account (multiple people / multi-language batches), so the
+  // window allowance is generous; the per-minute cap is the real runaway guard.
   const rl = await checkRateLimit(admin, ctx.accountId, "video/start", {
     perMinute: 10,
-    perLongWindow: { count: 3, windowMinutes: 20 },
+    perLongWindow: { count: 30, windowMinutes: 20 },
   });
   if (!rl.allowed) {
     return NextResponse.json(
