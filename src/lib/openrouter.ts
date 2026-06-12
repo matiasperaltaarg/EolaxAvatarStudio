@@ -116,26 +116,39 @@ export async function enrichLookPrompt(freeText: string): Promise<string> {
 // Enrich a script with ElevenLabs v3 audio tags + expressive punctuation so the
 // cloned voice sounds natural (not flat/robotic) instead of reading verbatim.
 // Runs AFTER translation, on the final-language text, right before TTS.
-// languageEnglishName is used so the director instructions match the language.
+// languageEnglishName matches the director instructions to the language.
+// accentTag (optional) is an ElevenLabs accent tag like "[Spanish accent]" that,
+// when set, is placed at the START of the script to bias regional pronunciation.
 export async function enrichForNaturalSpeech(
   text: string,
-  languageEnglishName: string
+  languageEnglishName: string,
+  accentTag?: string
 ): Promise<string> {
+  const accentLine = accentTag
+    ? `- Begin the script with the accent tag ${accentTag} so the whole delivery uses that regional accent. Keep it once, at the very start.`
+    : "";
+
   const system = [
     `You are a voice director preparing a script for ElevenLabs v3 TTS in ${languageEnglishName}.`,
     "Rewrite the script so it sounds NATURAL and human when spoken, WITHOUT changing",
     "the meaning, adding facts, or removing content. You may only adjust punctuation",
     "and insert performance cues. Specifically:",
-    "- Add natural punctuation: commas, periods, ellipses (…) for pauses/hesitation,",
-    "exclamation marks for emphasis, em dashes (—) for interruptions.",
+    "- Add natural punctuation generously: commas, periods, ellipses (…) for pauses and",
+    "hesitation, exclamation marks for emphasis, em dashes (—) for interruptions.",
+    "- Break long sentences into shorter ones so the delivery can breathe.",
+    "- Insert brief pauses where a person would naturally pause (after a greeting, before",
+    "an important point, between ideas) using ellipses (…) or a [short pause] tag.",
     "- Insert ElevenLabs audio tags in square brackets where tone calls for it, e.g.",
     "[warmly], [excited], [serious], [curious], [reassuring], [smiles], [short pause].",
     "Use AT MOST one tag every 1-2 sentences. Do not overuse them.",
+    accentLine,
     "- Keep tags and any cue words in English (the model expects English tags), but the",
     "spoken script text stays in the original language.",
     "- Do NOT wrap the output in quotes or add commentary.",
     "Return ONLY the final script, ready to send to TTS.",
-  ].join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return chat(system, text);
 }

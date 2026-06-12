@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   ASPECT_RATIOS,
   STUDIO_LANGUAGES,
+  STUDIO_ACCENTS,
   REFERENCE_PHOTOS_BUCKET,
   estimateDurationSeconds,
   studioLanguage,
@@ -76,6 +77,7 @@ export default function Studio({
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [improveError, setImproveError] = useState<string | null>(null);
   const [languages, setLanguages] = useState<string[]>([]);
+  const [accent, setAccent] = useState<string>("");
   const [aspectRatio, setAspectRatio] = useState("9:16");
 
   // Look (wardrobe + background presets). On-screen text overlay is PARKED
@@ -380,7 +382,7 @@ export default function Studio({
       const vRes = await fetch("/api/studio/voice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ avatarId: avatar.id, jobId, language: code, text: translated }),
+        body: JSON.stringify({ avatarId: avatar.id, jobId, language: code, text: translated, accent }),
       });
       const vJson = await vRes.json();
       if (!vRes.ok) throw new Error(`Voice: ${vJson.error}`);
@@ -740,6 +742,28 @@ export default function Studio({
           <p className="muted small">
             Tu guion se traducirá y se hablará en cada idioma con la voz clonada.
           </p>
+
+          {languages.some((c) => c.toLowerCase().startsWith("es")) ? (
+            <div style={{ marginTop: 12 }}>
+              <label htmlFor="accent">Acento (solo español)</label>
+              <select
+                id="accent"
+                value={accent}
+                onChange={(e) => setAccent(e.target.value)}
+              >
+                {STUDIO_ACCENTS.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+              <p className="muted small" style={{ marginTop: 6 }}>
+                Por defecto se respeta la voz original. Elegir un acento regional es
+                aproximado: el modelo hace bien las familias generales, las variantes
+                muy finas pueden no ser exactas.
+              </p>
+            </div>
+          ) : null}
         </section>
 
         {/* STEP 4 — look (wardrobe + background presets) */}

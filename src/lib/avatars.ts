@@ -35,6 +35,24 @@ export function studioLanguage(code: string) {
   return STUDIO_LANGUAGES.find((l) => l.code === code);
 }
 
+// Optional accent emulation for v3. The `tag` is injected at the start of the
+// script (ElevenLabs accent tags). "" = no tag = the voice's own accent (default).
+// Regional Spanish tags are best-effort: v3 reliably does broad families, fine
+// regional distinctions (paisa vs bogotano) may vary.
+export const STUDIO_ACCENTS: { value: string; label: string; tag: string }[] = [
+  { value: "", label: "Voz original (sin cambiar)", tag: "" },
+  { value: "neutral", label: "Español neutro", tag: "[neutral Spanish accent]" },
+  { value: "es_spain", label: "Español de España", tag: "[Spanish accent from Spain]" },
+  { value: "es_mx", label: "Español mexicano", tag: "[Mexican accent]" },
+  { value: "es_co", label: "Español colombiano", tag: "[Colombian accent]" },
+  { value: "es_ar", label: "Español rioplatense", tag: "[Argentine Rioplatense accent]" },
+];
+
+export function studioAccentTag(value?: string): string {
+  if (!value) return "";
+  return STUDIO_ACCENTS.find((a) => a.value === value)?.tag ?? "";
+}
+
 export const ASPECT_RATIOS: { value: string; label: string; hint: string }[] = [
   { value: "9:16", label: "9:16 Vertical", hint: "Reels / TikTok" },
   { value: "1:1", label: "1:1 Square", hint: "Feed" },
