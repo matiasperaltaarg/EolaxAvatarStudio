@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getBalanceSeconds, secondsToCharge } from "@/lib/credits";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { logApiUsage } from "@/lib/usageLog";
+import { inspectFace, faceRejectionMessage } from "@/lib/face-guard";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -85,6 +86,24 @@ export async function POST(request: NextRequest) {
     }
     faceImageUrl = signed.signedUrl;
   }
+
+  // --- FINAL-FRAME GUARD ------------------------------------------------------
+  const faceCheck = await inspectFace(faceImageUrl);
+  if (!faceCheck.ok) {
+    await logApiUsage(admin, {
+      accountId: ctx.accountId,
+      provider: "openrouter",
+      route: "video/start:face-guard",
+      costUsdEst: 0.001,
+      status: "error",
+      errorMsg: `blocked: faces=${faceCheck.faceCount} collage=${faceCheck.isCollage}`,
+    });
+    return NextResponse.json(
+      { error: faceRejectionMessage(faceCheck) },
+      { status: 422 }
+    );
+  }
+  // --- END FINAL-FRAME GUARD --------------------------------------------------
 
   try {
     const predictionId = await submitInfiniteTalk({

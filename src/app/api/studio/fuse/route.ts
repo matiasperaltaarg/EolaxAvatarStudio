@@ -99,6 +99,17 @@ export async function POST(request: NextRequest) {
       status: "error",
       errorMsg: message.slice(0, 500),
     });
-    return NextResponse.json({ error: message }, { status: 502 });
+    const isInvalid = message.startsWith("FUSION_INVALID");
+    return NextResponse.json(
+      {
+        error: isInvalid
+          ? "No se pudo fusionar en una sola persona (el modelo devolvió un " +
+            "collage o varias caras). Probá con una foto de cuerpo y una foto " +
+            "de rostro más distintas entre sí (ej: rostro en primer plano), o " +
+            "usá directamente una sola foto del avatar."
+          : message,
+      },
+      { status: isInvalid ? 422 : 502 }
+    );
   }
 }
