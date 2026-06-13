@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getBalanceSeconds, secondsToCharge } from "@/lib/credits";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { logApiUsage } from "@/lib/usageLog";
+import { inspectFace, faceRejectionMessage } from "@/lib/face-guard";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -28,10 +29,12 @@ export async function POST(request: NextRequest) {
 
   const admin = createAdminClient();
 
-  // Rate limit: max 3 concurrent (20-min window), max 10 per minute.
+  // Rate limit: protects against runaway cost loops, not normal use.
+  // Eolax is a company account (multiple people / multi-language batches), so the
+  // window allowance is generous; the per-minute cap is the real runaway guard.
   const rl = await checkRateLimit(admin, ctx.accountId, "video/start", {
     perMinute: 10,
-    perLongWindow: { count: 3, windowMinutes: 20 },
+    perLongWindow: { count: 30, windowMinutes: 20 },
   });
   if (!rl.allowed) {
     return NextResponse.json(
@@ -83,6 +86,24 @@ export async function POST(request: NextRequest) {
     }
     faceImageUrl = signed.signedUrl;
   }
+
+  // --- FINAL-FRAME GUARD ------------------------------------------------------
+  const faceCheck = await inspectFace(faceImageUrl);
+  if (!faceCheck.ok) {
+    await logApiUsage(admin, {
+      accountId: ctx.accountId,
+      provider: "openrouter",
+      route: "video/start:face-guard",
+      costUsdEst: 0.001,
+      status: "error",
+      errorMsg: `blocked: faces=${faceCheck.faceCount} collage=${faceCheck.isCollage}`,
+    });
+    return NextResponse.json(
+      { error: faceRejectionMessage(faceCheck) },
+      { status: 422 }
+    );
+  }
+  // --- END FINAL-FRAME GUARD --------------------------------------------------
 
   try {
     const predictionId = await submitInfiniteTalk({

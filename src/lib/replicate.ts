@@ -2,6 +2,8 @@
 // Used to apply wardrobe/background presets to an avatar's reference photo
 // while preserving identity. REPLICATE_API_TOKEN must never reach the browser.
 
+import { inspectFace } from "@/lib/face-guard";
+
 const API_BASE = "https://api.replicate.com/v1";
 
 // Official Black Forest Labs model; the model-name endpoint resolves for it.
@@ -114,83 +116,120 @@ const MULTI_KONTEXT_MODEL =
 
 // Fuse a face reference onto a body/pose image. bodyUrl is image 1 (keeps pose,
 // outfit, framing, background); faceUrl is image 2 (the identity source).
-// Returns the fused image URL. Submits + polls like editImage.
+//
+// FAILURE MODE THIS GUARDS AGAINST: multi-image-kontext sometimes returns a
+// side-by-side COLLAGE of the two inputs instead of one fused person. We make
+// the prompt aggressively anti-collage, then verify the result; if it still
+// comes back as a collage / multi-face image we retry once with an even more
+// explicit instruction, and finally throw a clear error rather than emit a
+// poisoned reference image.
 export async function fuseFaceAndBody(input: {
   bodyUrl: string;
   faceUrl: string;
   prompt?: string;
 }): Promise<string> {
-  const prompt =
+  const basePrompt =
     input.prompt ??
-    "Replace the face of the person in the first image with the face from the " +
-      "second image. Keep the body, pose, clothing, framing and background of the " +
-      "first image exactly the same. Match skin tone and lighting. Photorealistic, " +
-      "natural, seamless blend.";
+    "Produce ONE single photograph of ONE single person. Take the body, pose, " +
+      "clothing, framing, lighting and background from the first image, and " +
+      "replace ONLY that person's face with the face from the second image. " +
+      "Do NOT place the two images side by side. Do NOT create a collage, grid, " +
+      "split-screen, montage or diptych. The output must be a single seamless " +
+      "portrait of one individual. Match skin tone and lighting. Photorealistic.";
 
-  const body: Record<string, unknown> = {
-    input: {
-      input_image_1: input.bodyUrl,
-      input_image_2: input.faceUrl,
-      prompt,
-      output_format: "png",
-      aspect_ratio: "match_input_image",
-      safety_tolerance: 2,
-    },
-  };
+  const retryPrompt =
+    "OUTPUT EXACTLY ONE PERSON IN ONE FRAME. This is a face-swap: keep the first " +
+    "image's body, clothing, pose and background; swap in the face from the " +
+    "second image onto that same body. Absolutely no side-by-side layout, no " +
+    "two people, no collage, no panels. One person, one seamless photo.";
 
-  const colon = MULTI_KONTEXT_MODEL.indexOf(":");
-  let url: string;
-  if (colon >= 0) {
-    url = `${API_BASE}/predictions`;
-    body.version = MULTI_KONTEXT_MODEL.slice(colon + 1);
-  } else {
-    url = `${API_BASE}/models/${MULTI_KONTEXT_MODEL}/predictions`;
-  }
+  const runOnce = async (prompt: string): Promise<string> => {
+    const body: Record<string, unknown> = {
+      input: {
+        input_image_1: input.bodyUrl,
+        input_image_2: input.faceUrl,
+        prompt,
+        output_format: "png",
+        aspect_ratio: "match_input_image",
+        safety_tolerance: 2,
+      },
+    };
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getToken()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    console.error(
-      `[kontext-multi] submit failed: status=${res.status} model="${MULTI_KONTEXT_MODEL}" detail=${detail || res.statusText}`
-    );
-    throw new Error(`Face fusion failed (${res.status}): ${detail || res.statusText}`);
-  }
-
-  let pred = (await res.json()) as {
-    id: string;
-    status: string;
-    output?: unknown;
-    error?: string | null;
-  };
-
-  for (let i = 0; i < 30; i++) {
-    if (pred.status === "succeeded") {
-      const out = firstUrl(pred.output);
-      if (!out) throw new Error("Face fusion returned no output.");
-      return out;
+    const colon = MULTI_KONTEXT_MODEL.indexOf(":");
+    let url: string;
+    if (colon >= 0) {
+      url = `${API_BASE}/predictions`;
+      body.version = MULTI_KONTEXT_MODEL.slice(colon + 1);
+    } else {
+      url = `${API_BASE}/models/${MULTI_KONTEXT_MODEL}/predictions`;
     }
-    if (pred.status === "failed" || pred.status === "canceled") {
-      throw new Error(`Face fusion ${pred.status}${pred.error ? `: ${pred.error}` : ""}`);
-    }
-    await sleep(2000);
-    const poll = await fetch(`${API_BASE}/predictions/${pred.id}`, {
-      headers: { Authorization: `Bearer ${getToken()}` },
-      cache: "no-store",
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${getToken()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     });
-    if (!poll.ok) {
-      const detail = await poll.text().catch(() => "");
-      throw new Error(`Face fusion poll failed (${poll.status}): ${detail || poll.statusText}`);
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.error(
+        `[kontext-multi] submit failed: status=${res.status} model="${MULTI_KONTEXT_MODEL}" detail=${detail || res.statusText}`
+      );
+      throw new Error(`Face fusion failed (${res.status}): ${detail || res.statusText}`);
     }
-    pred = await poll.json();
+
+    let pred = (await res.json()) as {
+      id: string;
+      status: string;
+      output?: unknown;
+      error?: string | null;
+    };
+
+    for (let i = 0; i < 30; i++) {
+      if (pred.status === "succeeded") {
+        const out = firstUrl(pred.output);
+        if (!out) throw new Error("Face fusion returned no output.");
+        return out;
+      }
+      if (pred.status === "failed" || pred.status === "canceled") {
+        throw new Error(`Face fusion ${pred.status}${pred.error ? `: ${pred.error}` : ""}`);
+      }
+      await sleep(2000);
+      const poll = await fetch(`${API_BASE}/predictions/${pred.id}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+        cache: "no-store",
+      });
+      if (!poll.ok) {
+        const detail = await poll.text().catch(() => "");
+        throw new Error(`Face fusion poll failed (${poll.status}): ${detail || poll.statusText}`);
+      }
+      pred = await poll.json();
+    }
+
+    throw new Error("Face fusion timed out.");
+  };
+
+  // Attempt 1.
+  let out = await runOnce(basePrompt);
+  let check = await inspectFace(out);
+  if (check.ok) return out;
+
+  // Attempt 2 — only retry when the problem is a collage / multiple faces.
+  if (check.isCollage || check.faceCount > 1) {
+    console.warn(
+      `[fuse] attempt 1 produced collage/multi-face (faces=${check.faceCount}, collage=${check.isCollage}); retrying`
+    );
+    out = await runOnce(retryPrompt);
+    check = await inspectFace(out);
+    if (check.ok) return out;
   }
 
-  throw new Error("Face fusion timed out.");
+  // Still bad → refuse to emit a poisoned image.
+  throw new Error(
+    `FUSION_INVALID: the model returned an image with ${check.faceCount} face(s)` +
+      `${check.isCollage ? " as a collage" : ""}. ${check.reason}`
+  );
 }
