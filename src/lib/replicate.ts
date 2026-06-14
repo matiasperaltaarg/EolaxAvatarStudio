@@ -106,130 +106,100 @@ export async function editImage(input: {
   throw new Error("Image edit timed out.");
 }
 
-// Multi-image kontext model: fuses TWO input images into one. We use it to put
-// a high-fidelity FACE (close-up) onto a BODY/POSE photo, so the talking-head
-// video keeps the real person's likeness even when the body shot has a small
-// face. Overridable/pinnable via env.
-const MULTI_KONTEXT_MODEL =
-  process.env.REPLICATE_MULTI_KONTEXT_MODEL ??
-  "flux-kontext-apps/multi-image-kontext-max";
-
-// Fuse a face reference onto a body/pose image. bodyUrl is image 1 (keeps pose,
-// outfit, framing, background); faceUrl is image 2 (the identity source).
+// Dedicated face-swap model. Unlike multi-image-kontext (which builds a NEW
+// scene from two images and tends to collage), this swaps ONLY the face region
+// of the target image, leaving body/pose/clothing/background untouched. That is
+// exactly what we want: real face on a chosen body shot, no collage possible.
 //
-// FAILURE MODE THIS GUARDS AGAINST: multi-image-kontext sometimes returns a
-// side-by-side COLLAGE of the two inputs instead of one fused person. We make
-// the prompt aggressively anti-collage, then verify the result; if it still
-// comes back as a collage / multi-face image we retry once with an even more
-// explicit instruction, and finally throw a clear error rather than emit a
-// poisoned reference image.
+// Default: cdingram/face-swap. Overridable/pinnable via env
+// REPLICATE_FACESWAP_MODEL ("owner/name" or "owner/name:version").
+const FACESWAP_MODEL =
+  process.env.REPLICATE_FACESWAP_MODEL ?? "cdingram/face-swap";
+
+// Swap the face from `faceUrl` onto the person in `bodyUrl`.
+// bodyUrl  -> the target image (pose, outfit, framing, background are kept)
+// faceUrl  -> the identity source (only the face is taken from here)
+// Returns the swapped image URL. Verifies the result has exactly one face
+// (reusing inspectFace) before returning; throws FUSION_INVALID otherwise.
 export async function fuseFaceAndBody(input: {
   bodyUrl: string;
   faceUrl: string;
-  prompt?: string;
 }): Promise<string> {
-  const basePrompt =
-    input.prompt ??
-    "Produce ONE single photograph of ONE single person. Take the body, pose, " +
-      "clothing, framing, lighting and background from the first image, and " +
-      "replace ONLY that person's face with the face from the second image. " +
-      "Do NOT place the two images side by side. Do NOT create a collage, grid, " +
-      "split-screen, montage or diptych. The output must be a single seamless " +
-      "portrait of one individual. Match skin tone and lighting. Photorealistic.";
-
-  const retryPrompt =
-    "OUTPUT EXACTLY ONE PERSON IN ONE FRAME. This is a face-swap: keep the first " +
-    "image's body, clothing, pose and background; swap in the face from the " +
-    "second image onto that same body. Absolutely no side-by-side layout, no " +
-    "two people, no collage, no panels. One person, one seamless photo.";
-
-  const runOnce = async (prompt: string): Promise<string> => {
-    const body: Record<string, unknown> = {
-      input: {
-        input_image_1: input.bodyUrl,
-        input_image_2: input.faceUrl,
-        prompt,
-        output_format: "png",
-        aspect_ratio: "match_input_image",
-        safety_tolerance: 2,
-      },
-    };
-
-    const colon = MULTI_KONTEXT_MODEL.indexOf(":");
-    let url: string;
-    if (colon >= 0) {
-      url = `${API_BASE}/predictions`;
-      body.version = MULTI_KONTEXT_MODEL.slice(colon + 1);
-    } else {
-      url = `${API_BASE}/models/${MULTI_KONTEXT_MODEL}/predictions`;
-    }
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${getToken()}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      console.error(
-        `[kontext-multi] submit failed: status=${res.status} model="${MULTI_KONTEXT_MODEL}" detail=${detail || res.statusText}`
-      );
-      throw new Error(`Face fusion failed (${res.status}): ${detail || res.statusText}`);
-    }
-
-    let pred = (await res.json()) as {
-      id: string;
-      status: string;
-      output?: unknown;
-      error?: string | null;
-    };
-
-    for (let i = 0; i < 30; i++) {
-      if (pred.status === "succeeded") {
-        const out = firstUrl(pred.output);
-        if (!out) throw new Error("Face fusion returned no output.");
-        return out;
-      }
-      if (pred.status === "failed" || pred.status === "canceled") {
-        throw new Error(`Face fusion ${pred.status}${pred.error ? `: ${pred.error}` : ""}`);
-      }
-      await sleep(2000);
-      const poll = await fetch(`${API_BASE}/predictions/${pred.id}`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-        cache: "no-store",
-      });
-      if (!poll.ok) {
-        const detail = await poll.text().catch(() => "");
-        throw new Error(`Face fusion poll failed (${poll.status}): ${detail || poll.statusText}`);
-      }
-      pred = await poll.json();
-    }
-
-    throw new Error("Face fusion timed out.");
+  // Most face-swap models on Replicate use these two input field names.
+  // cdingram/face-swap: input_image (target) + swap_image (face source).
+  const body: Record<string, unknown> = {
+    input: {
+      input_image: input.bodyUrl,
+      swap_image: input.faceUrl,
+    },
   };
 
-  // Attempt 1.
-  let out = await runOnce(basePrompt);
-  let check = await inspectFace(out);
-  if (check.ok) return out;
-
-  // Attempt 2 — only retry when the problem is a collage / multiple faces.
-  if (check.isCollage || check.faceCount > 1) {
-    console.warn(
-      `[fuse] attempt 1 produced collage/multi-face (faces=${check.faceCount}, collage=${check.isCollage}); retrying`
-    );
-    out = await runOnce(retryPrompt);
-    check = await inspectFace(out);
-    if (check.ok) return out;
+  const colon = FACESWAP_MODEL.indexOf(":");
+  let url: string;
+  if (colon >= 0) {
+    url = `${API_BASE}/predictions`;
+    body.version = FACESWAP_MODEL.slice(colon + 1);
+  } else {
+    url = `${API_BASE}/models/${FACESWAP_MODEL}/predictions`;
   }
 
-  // Still bad → refuse to emit a poisoned image.
-  throw new Error(
-    `FUSION_INVALID: the model returned an image with ${check.faceCount} face(s)` +
-      `${check.isCollage ? " as a collage" : ""}. ${check.reason}`
-  );
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getToken()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    console.error(
+      `[faceswap] submit failed: status=${res.status} model="${FACESWAP_MODEL}" detail=${detail || res.statusText}`
+    );
+    throw new Error(`Face swap failed (${res.status}): ${detail || res.statusText}`);
+  }
+
+  let pred = (await res.json()) as {
+    id: string;
+    status: string;
+    output?: unknown;
+    error?: string | null;
+  };
+
+  let swappedUrl: string | null = null;
+  for (let i = 0; i < 30; i++) {
+    if (pred.status === "succeeded") {
+      swappedUrl = firstUrl(pred.output);
+      break;
+    }
+    if (pred.status === "failed" || pred.status === "canceled") {
+      throw new Error(`Face swap ${pred.status}${pred.error ? `: ${pred.error}` : ""}`);
+    }
+    await sleep(2000);
+    const poll = await fetch(`${API_BASE}/predictions/${pred.id}`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+      cache: "no-store",
+    });
+    if (!poll.ok) {
+      const detail = await poll.text().catch(() => "");
+      throw new Error(`Face swap poll failed (${poll.status}): ${detail || poll.statusText}`);
+    }
+    pred = await poll.json();
+  }
+
+  if (!swappedUrl) throw new Error("Face swap returned no output (timed out).");
+
+  // Verify: a correct swap keeps the single body, so it must read as ONE face,
+  // not a collage. (Face-swap models don't collage, but this is a cheap belt-
+  // and-suspenders check before the image can ever reach a paid video render.)
+  const check = await inspectFace(swappedUrl);
+  if (!check.ok) {
+    throw new Error(
+      `FUSION_INVALID: face swap produced ${check.faceCount} face(s)` +
+        `${check.isCollage ? " as a collage" : ""}. ${check.reason}`
+    );
+  }
+
+  return swappedUrl;
 }
