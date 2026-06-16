@@ -103,9 +103,6 @@ export default function Studio({
   const [baseImageUrl, setBaseImageUrl] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
-  // Face+body fusion: hold the two chosen files until both are present.
-  const [fuseBodyFile, setFuseBodyFile] = useState<File | null>(null);
-  const [fuseFaceFile, setFuseFaceFile] = useState<File | null>(null);
 
   const selectedAvatar = avatars.find((a) => a.id === avatarId) ?? null;
   const charCount = script.trim().length;
@@ -139,8 +136,6 @@ export default function Studio({
     setBaseImagePath(a.photos[0]?.path ?? null);
     setBaseImageUrl(a.photos[0]?.url ?? null);
     setPhotoError(null);
-    setFuseBodyFile(null);
-    setFuseFaceFile(null);
     // Reset the look — presets are per avatar.
     setWardrobeId("");
     setBackgroundId("");
@@ -194,39 +189,6 @@ export default function Studio({
       setLookKey("");
     } catch (e) {
       setPhotoError(e instanceof Error ? e.message : "No se pudo subir la foto.");
-    } finally {
-      setUploadingPhoto(false);
-    }
-  }
-
-  // Fuse a BODY/POSE photo + a FACE photo into one high-fidelity base image.
-  // Uploads both, calls /api/studio/fuse, and uses the fused result as the base.
-  async function fuseBodyAndFace(bodyFile: File, faceFile: File) {
-    if (!selectedAvatar) return;
-    setUploadingPhoto(true);
-    setPhotoError(null);
-    try {
-      const [body, face] = await Promise.all([
-        uploadPhotoToStorage(bodyFile),
-        uploadPhotoToStorage(faceFile),
-      ]);
-      const res = await fetch("/api/studio/fuse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          avatarId: selectedAvatar.id,
-          bodyPath: body.path,
-          facePath: face.path,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "No se pudo fusionar las fotos.");
-      setBaseImagePath(json.path);
-      setBaseImageUrl(json.url);
-      setLookImageUrl(null);
-      setLookKey("");
-    } catch (e) {
-      setPhotoError(e instanceof Error ? e.message : "No se pudo fusionar las fotos.");
     } finally {
       setUploadingPhoto(false);
     }
@@ -621,53 +583,6 @@ export default function Studio({
                 Usá una foto frontal y nítida para mejor calidad.
               </p>
               {photoError ? <p className="error">{photoError}</p> : null}
-
-              <details className="fuse-block">
-                <summary>Cara + cuerpo (mejor fidelidad en cuerpo entero)</summary>
-                <p className="muted small">
-                  Si la foto es de cuerpo entero, la cara puede perder detalle. Subí
-                  una foto del <b>cuerpo/pose</b> y otra de la <b>cara</b> nítida; se
-                  combinan en una sola imagen antes de generar el video.
-                </p>
-                <div className="fuse-inputs">
-                  <label className="fuse-slot">
-                    <span>{fuseBodyFile ? `Cuerpo: ${fuseBodyFile.name}` : "1. Foto de cuerpo/pose"}</span>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      style={{ display: "none" }}
-                      disabled={uploadingPhoto}
-                      onChange={(e) => {
-                        setFuseBodyFile(e.target.files?.[0] ?? null);
-                        e.currentTarget.value = "";
-                      }}
-                    />
-                  </label>
-                  <label className="fuse-slot">
-                    <span>{fuseFaceFile ? `Cara: ${fuseFaceFile.name}` : "2. Foto de cara nítida"}</span>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      style={{ display: "none" }}
-                      disabled={uploadingPhoto}
-                      onChange={(e) => {
-                        setFuseFaceFile(e.target.files?.[0] ?? null);
-                        e.currentTarget.value = "";
-                      }}
-                    />
-                  </label>
-                </div>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={!fuseBodyFile || !fuseFaceFile || uploadingPhoto}
-                  onClick={() => {
-                    if (fuseBodyFile && fuseFaceFile) fuseBodyAndFace(fuseBodyFile, fuseFaceFile);
-                  }}
-                >
-                  {uploadingPhoto ? "Fusionando…" : "Combinar cara + cuerpo"}
-                </button>
-              </details>
             </div>
           ) : null}
         </section>
