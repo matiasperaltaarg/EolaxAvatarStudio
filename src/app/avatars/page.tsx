@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountId } from "@/lib/account";
 import { languageLabel, type Avatar } from "@/lib/avatars";
-import { getAvatarCreditBalance } from "@/lib/credits";
 import AppShell from "@/app/AppShell";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +17,6 @@ export default async function AvatarsPage() {
   if (!user) redirect("/login");
 
   const accountId = await getAccountId();
-  const avatarCredits = await getAvatarCreditBalance(supabase, accountId);
   const { data: avatars } = await supabase
     .from("avatars")
     .select("*")
@@ -35,7 +33,6 @@ export default async function AvatarsPage() {
           <h1 style={{ margin: 0 }}>Avatares</h1>
           <p className="muted" style={{ margin: "4px 0 0" }}>
             Personajes exclusivos de marca para la cuenta de Eolax.
-            Créditos de avatar disponibles: <strong>{avatarCredits}</strong>.
           </p>
         </div>
         <Link href="/avatars/new">

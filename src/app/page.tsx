@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountId } from "@/lib/account";
-import { getBalanceSeconds, getAvatarCreditBalance } from "@/lib/credits";
+import { getBalanceSeconds } from "@/lib/credits";
 import { createAdminClient } from "@/lib/supabase/admin";
 import AppShell from "@/app/AppShell";
 
@@ -25,9 +25,8 @@ export default async function Home() {
   const admin = createAdminClient();
 
   // All stats are REAL — counted from the database. No placeholder metrics.
-  const [videoSeconds, avatarCredits, avatarsRes, videosRes] = await Promise.all([
+  const [videoSeconds, avatarsRes, videosRes] = await Promise.all([
     getBalanceSeconds(supabase, accountId),
-    getAvatarCreditBalance(supabase, accountId),
     admin
       .from("avatars")
       .select("id, status", { count: "exact" })
@@ -64,10 +63,6 @@ export default async function Home() {
           <div className="stat-card">
             <span className="stat-label">Tiempo de video disponible</span>
             <span className="stat-value">{mmss(videoSeconds)}</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-label">Créditos de avatar</span>
-            <span className="stat-value">{avatarCredits}</span>
           </div>
           <div className="stat-card">
             <span className="stat-label">Avatares activos</span>

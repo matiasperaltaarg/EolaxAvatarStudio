@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getAccountId } from "@/lib/account";
-import { getAvatarCreditBalance } from "@/lib/credits";
 import { createAvatar } from "../actions";
 import { LANGUAGES } from "@/lib/avatars";
 import AppShell from "@/app/AppShell";
@@ -20,8 +18,6 @@ export default async function NewAvatarPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const accountId = await getAccountId();
-  const avatarCredits = await getAvatarCreditBalance(supabase, accountId);
   const { error } = await searchParams;
 
   return (
@@ -39,17 +35,6 @@ export default async function NewAvatarPage({
         </p>
 
         {error ? <p className="error">{error}</p> : null}
-
-        {avatarCredits < 1 ? (
-          <div className="error" style={{ padding: "12px 16px", borderRadius: 8, marginBottom: 16 }}>
-            No tenés créditos de avatar disponibles. Contactá con MTS para cargar
-            créditos antes de crear un avatar nuevo.
-          </div>
-        ) : (
-          <p className="muted small">
-            Se debitará 1 crédito de avatar al crear. Créditos disponibles: <strong>{avatarCredits}</strong>.
-          </p>
-        )}
 
         <form action={createAvatar} encType="multipart/form-data">
           <label htmlFor="name">Nombre del avatar</label>
@@ -86,7 +71,7 @@ export default async function NewAvatarPage({
             la calibración de imagen.
           </p>
 
-          <button type="submit" disabled={avatarCredits < 1}>
+          <button type="submit">
             Crear avatar (borrador)
           </button>
         </form>

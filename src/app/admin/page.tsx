@@ -2,9 +2,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isAdmin } from "@/lib/admin";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getBalanceSeconds, getAvatarCreditBalance } from "@/lib/credits";
+import { getBalanceSeconds } from "@/lib/credits";
 import AppShell from "@/app/AppShell";
-import { grantAvatarCredits, grantVideoTime } from "./actions";
+import { grantVideoTime } from "./actions";
 import AdminToast from "./AdminToast";
 
 export const dynamic = "force-dynamic";
@@ -80,7 +80,6 @@ export default async function AdminPage({
     : accounts[0];
 
   let videoBalance = 0;
-  let avatarBalance = 0;
   type PackRow = {
     id: string;
     pack_type: string;
@@ -89,49 +88,23 @@ export default async function AdminPage({
     purchased_at: string;
     expires_at: string;
   };
-  type AvatarPackRow = {
-    id: string;
-    credits_total: number;
-    credits_used: number;
-    purchased_at: string;
-    expires_at: string;
-  };
   let videoPacks: PackRow[] = [];
-  let avatarPacks: AvatarPackRow[] = [];
 
-  type AvatarLogRow = {
-    credits_charged: number;
-    created_at: string;
-    avatars: { name: string } | null;
-  };
   type VideoLogRow = {
     seconds_charged: number;
     created_at: string;
     videos: { language: string | null; avatars: { name: string } | null } | null;
   };
-  let avatarLog: AvatarLogRow[] = [];
   let videoLog: VideoLogRow[] = [];
 
   if (selected) {
-    const [vb, ab, vpRes, apRes, alRes, vlRes] = await Promise.all([
+    const [vb, vpRes, vlRes] = await Promise.all([
       getBalanceSeconds(admin, selected.id),
-      getAvatarCreditBalance(admin, selected.id),
       admin
         .from("credit_packs")
         .select("id, pack_type, seconds_total, seconds_used, purchased_at, expires_at")
         .eq("account_id", selected.id)
         .order("purchased_at", { ascending: false }),
-      admin
-        .from("avatar_credit_packs")
-        .select("id, credits_total, credits_used, purchased_at, expires_at")
-        .eq("account_id", selected.id)
-        .order("purchased_at", { ascending: false }),
-      admin
-        .from("avatar_creation_log")
-        .select("credits_charged, created_at, avatars!inner(name, account_id)")
-        .eq("avatars.account_id", selected.id)
-        .order("created_at", { ascending: false })
-        .limit(50),
       admin
         .from("generations_log")
         .select(
@@ -142,10 +115,7 @@ export default async function AdminPage({
         .limit(50),
     ]);
     videoBalance = vb;
-    avatarBalance = ab;
     videoPacks = (vpRes.data ?? []) as PackRow[];
-    avatarPacks = (apRes.data ?? []) as AvatarPackRow[];
-    avatarLog = (alRes.data ?? []) as unknown as AvatarLogRow[];
     videoLog = (vlRes.data ?? []) as unknown as VideoLogRow[];
   }
 
@@ -244,43 +214,12 @@ export default async function AdminPage({
         {selected ? (
           <>
             {/* Balances */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <section className="card balance-card">
-                <div className="muted small" style={{ marginBottom: 4 }}>
-                  Tiempo de video
-                </div>
-                <div className="balance-big">{mmss(videoBalance)}</div>
-                <div className="muted">disponibles ({videoBalance}s)</div>
-              </section>
-              <section className="card balance-card">
-                <div className="muted small" style={{ marginBottom: 4 }}>
-                  Créditos de avatar
-                </div>
-                <div className="balance-big">{avatarBalance}</div>
-                <div className="muted">
-                  {avatarBalance === 1 ? "avatar disponible" : "avatares disponibles"}
-                </div>
-              </section>
-            </div>
-
-            {/* Grant avatar credits */}
-            <section className="card">
-              <h2>Cargar créditos de avatar</h2>
-              <form action={grantAvatarCredits}>
-                <input type="hidden" name="account_id" value={selected.id} />
-                <label htmlFor="avatar_amount">Cantidad de créditos</label>
-                <input
-                  id="avatar_amount"
-                  name="amount"
-                  type="number"
-                  min={1}
-                  required
-                  placeholder="ej. 5"
-                />
-                <button type="submit" style={{ marginTop: 8 }}>
-                  Cargar créditos de avatar
-                </button>
-              </form>
+            <section className="card balance-card">
+              <div className="muted small" style={{ marginBottom: 4 }}>
+                Tiempo de video
+              </div>
+              <div className="balance-big">{mmss(videoBalance)}</div>
+              <div className="muted">disponibles ({videoBalance}s)</div>
             </section>
 
             {/* Grant video time */}
@@ -349,59 +288,7 @@ export default async function AdminPage({
               )}
             </section>
 
-            {/* Avatar packs */}
-            <section className="card">
-              <h2>Packs de avatar</h2>
-              {avatarPacks.length === 0 ? (
-                <p className="muted">Sin packs de avatar.</p>
-              ) : (
-                <ul className="pack-list">
-                  {avatarPacks.map((p) => {
-                    const expired = new Date(p.expires_at).getTime() < now;
-                    const remaining = Math.max(0, p.credits_total - p.credits_used);
-                    return (
-                      <li key={p.id} className={`pack-row${expired ? " expired" : ""}`}>
-                        <div>
-                          <strong>Avatar pack</strong>
-                          <span className="muted small">
-                            {" "}· {remaining} de {p.credits_total}{" "}
-                            {p.credits_total === 1 ? "crédito" : "créditos"}
-                          </span>
-                        </div>
-                        <div className="muted small">
-                          {expired
-                            ? `Caducó el ${new Date(p.expires_at).toLocaleDateString()}`
-                            : `Caduca el ${new Date(p.expires_at).toLocaleDateString()}`}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
-
             {/* Consumption logs */}
-            <section className="card">
-              <h2>Consumo de avatares</h2>
-              {avatarLog.length === 0 ? (
-                <p className="muted">Sin consumo de avatares.</p>
-              ) : (
-                <ul className="pack-list">
-                  {avatarLog.map((row, i) => (
-                    <li key={i} className="pack-row">
-                      <div>
-                        <strong>{row.avatars?.name ?? "Avatar"}</strong>
-                      </div>
-                      <div className="muted small">
-                        −{row.credits_charged} crédito ·{" "}
-                        {new Date(row.created_at).toLocaleString()}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
             <section className="card">
               <h2>Consumo de video</h2>
               {videoLog.length === 0 ? (
