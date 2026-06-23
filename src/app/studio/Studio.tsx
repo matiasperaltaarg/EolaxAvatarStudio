@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ASPECT_RATIOS,
   STUDIO_LANGUAGES,
@@ -69,6 +70,8 @@ export default function Studio({
   balanceSeconds: number;
   accountId: string;
 }) {
+  const router = useRouter();
+
   const [phase, setPhase] = useState<"form" | "running" | "results">("form");
 
   const [avatarId, setAvatarId] = useState<string | null>(null);
@@ -329,7 +332,11 @@ export default function Studio({
 
     for (let i = 0; i < MAX_POLLS; i++) {
       await sleep(POLL_INTERVAL_MS);
-      const pRes = await fetch(`/api/studio/video/status?id=${encodeURIComponent(predictionId)}`);
+      const secondsQS =
+        durationSeconds != null ? `&seconds=${encodeURIComponent(durationSeconds)}` : "";
+      const pRes = await fetch(
+        `/api/studio/video/status?id=${encodeURIComponent(predictionId)}${secondsQS}`
+      );
       const pJson = await pRes.json();
       if (!pRes.ok) throw new Error(pJson.error ?? "Status check failed.");
       if (pJson.status === "succeeded") {
@@ -463,6 +470,9 @@ export default function Studio({
       await runLanguage(code, jobId, lookUrl);
     }
     setPhase("results");
+    // Videos debit credits on completion (server-side, in video/status). Refresh
+    // server props so the Panel balance / recent usage reflect the new charges.
+    router.refresh();
   }
 
   function reset() {
