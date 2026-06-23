@@ -87,10 +87,10 @@ export default function Studio({
   const [backgroundId, setBackgroundId] = useState<string>("");
   const [lookMode, setLookMode] = useState<"preset" | "free" | "tryon">("preset");
   const [freePrompt, setFreePrompt] = useState<string>("");
-  // Try-on (wardrobe by reference photo): upload a real garment photo + an
-  // optional short description. Writes its result into the SAME look state.
-  const [garmentFile, setGarmentFile] = useState<File | null>(null);
-  const [garmentDescription, setGarmentDescription] = useState<string>("");
+  // Vestuario (outfit by Gemini): a required outfit instruction + 0..4 optional
+  // real garment reference photos. Writes its result into the SAME look state.
+  const [garmentFiles, setGarmentFiles] = useState<File[]>([]);
+  const [outfitInstruction, setOutfitInstruction] = useState<string>("");
   const [lookImageUrl, setLookImageUrl] = useState<string | null>(null);
   const [lookKey, setLookKey] = useState<string>(""); // selection the look image matches
   const [applyingLook, setApplyingLook] = useState(false);
@@ -113,21 +113,19 @@ export default function Studio({
   const estSeconds = estimateDurationSeconds(script);
 
   const trimmedFreePrompt = freePrompt.trim();
-  const trimmedGarmentDesc = garmentDescription.trim();
-  const garmentSig = garmentFile
-    ? `${garmentFile.name}|${garmentFile.size}|${trimmedGarmentDesc}`
-    : "";
+  const trimmedInstruction = outfitInstruction.trim();
+  const garmentSig = garmentFiles.map((g) => `${g.name}:${g.size}`).join(",");
   const hasLookSelection =
     lookMode === "free"
       ? trimmedFreePrompt.length > 0
       : lookMode === "tryon"
-        ? garmentFile !== null
+        ? trimmedInstruction.length > 0
         : Boolean(wardrobeId && backgroundId);
   const currentLookKey =
     lookMode === "free"
       ? `free|${trimmedFreePrompt}`
       : lookMode === "tryon"
-        ? `tryon|${garmentSig}`
+        ? `tryon|${trimmedInstruction}|${garmentSig}`
         : `preset|${wardrobeId}|${backgroundId}`;
   const lookReady = lookImageUrl !== null && lookKey === currentLookKey;
 
@@ -157,8 +155,8 @@ export default function Studio({
     setBackgroundId("");
     setLookMode(a.wardrobe.length === 0 && a.background.length === 0 ? "free" : "preset");
     setFreePrompt("");
-    setGarmentFile(null);
-    setGarmentDescription("");
+    setGarmentFiles([]);
+    setOutfitInstruction("");
     setLookImageUrl(null);
     setLookKey("");
     setLookError(null);
@@ -212,18 +210,21 @@ export default function Studio({
     }
   }
 
-  // Try-on: upload the garment + avatar reference photo to /api/studio/tryon and
-  // write the result into the SAME look state, so it flows through the video
-  // pipeline exactly like a look (preset/free) result.
+  // Vestuario: send the outfit instruction + 0..4 garment reference photos +
+  // the avatar's base photo to /api/studio/tryon (Gemini), and write the result
+  // into the SAME look state so it flows through the video pipeline exactly like
+  // a look (preset/free) result.
   async function applyTryOn(): Promise<string> {
-    if (!selectedAvatar || !garmentFile) throw new Error("Subí una foto de la prenda.");
+    if (!selectedAvatar || !trimmedInstruction) {
+      throw new Error("Describí el vestuario.");
+    }
     setApplyingLook(true);
     setLookError(null);
     try {
       const fd = new FormData();
       fd.append("avatarId", selectedAvatar.id);
-      fd.append("garment", garmentFile);
-      fd.append("description", trimmedGarmentDesc);
+      fd.append("instruction", trimmedInstruction);
+      for (const g of garmentFiles) fd.append("garment", g);
       if (baseImagePath) fd.append("baseImagePath", baseImagePath);
       const res = await fetch("/api/studio/tryon", { method: "POST", body: fd });
       const json = await res.json();
@@ -766,7 +767,7 @@ export default function Studio({
                   }}
                   aria-pressed={lookMode === "tryon"}
                 >
-                  Vestuario por foto
+                  Vestuario
                 </button>
               </div>
 
@@ -832,38 +833,45 @@ export default function Studio({
                 </>
               ) : (
                 <>
-                  <label htmlFor="garmentPhoto">Foto de la prenda</label>
+                  <label htmlFor="outfitInstruction">Describí el vestuario</label>
+                  <textarea
+                    id="outfitInstruction"
+                    value={outfitInstruction}
+                    maxLength={600}
+                    rows={3}
+                    placeholder="Ej: camiseta de la foto, short negro y botines blancos"
+                    onChange={(e) => {
+                      setOutfitInstruction(e.target.value);
+                      setLookImageUrl(null);
+                      setLookKey("");
+                      setLookError(null);
+                    }}
+                  />
+
+                  <label htmlFor="garmentPhotos">Fotos de prendas (opcional, hasta 4)</label>
                   <input
-                    id="garmentPhoto"
+                    id="garmentPhotos"
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
+                    multiple
                     onChange={(e) => {
-                      setGarmentFile(e.target.files?.[0] ?? null);
+                      setGarmentFiles(Array.from(e.target.files ?? []).slice(0, 4));
                       setLookImageUrl(null);
                       setLookKey("");
                       setLookError(null);
                     }}
                   />
-
-                  <label htmlFor="garmentDesc">Descripción de la prenda (opcional)</label>
-                  <input
-                    id="garmentDesc"
-                    type="text"
-                    value={garmentDescription}
-                    maxLength={200}
-                    placeholder="Ej: camiseta de fútbol a rayas celeste y blanca"
-                    onChange={(e) => {
-                      setGarmentDescription(e.target.value);
-                      setLookImageUrl(null);
-                      setLookKey("");
-                      setLookError(null);
-                    }}
-                  />
+                  {garmentFiles.length > 0 ? (
+                    <p className="muted small">
+                      {garmentFiles.length} foto{garmentFiles.length === 1 ? "" : "s"} de prenda
+                      seleccionada{garmentFiles.length === 1 ? "" : "s"}.
+                    </p>
+                  ) : null}
 
                   <p className="muted small">
-                    Subí la foto de una prenda real (sola, fondo limpio, tipo
-                    catálogo) y se la pone al avatar conservando su cara y pose, con
-                    el diseño real (escudo, sponsor, colores).
+                    Subí fotos de las prendas que quieras reproducir exactas (ej:
+                    camiseta oficial). Lo que no tengas en foto, describilo en el
+                    texto. La cara y la pose del avatar se mantienen.
                   </p>
                 </>
               )}
