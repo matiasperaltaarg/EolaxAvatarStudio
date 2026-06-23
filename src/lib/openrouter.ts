@@ -125,30 +125,68 @@ export async function enrichForNaturalSpeech(
   accentTag?: string
 ): Promise<string> {
   const accentLine = accentTag
-    ? `- Begin the script with the accent tag ${accentTag} so the whole delivery uses that regional accent. Keep it once, at the very start.`
+    ? `- At the very START of the output, prepend the accent tag ${accentTag} exactly once (before the first word). This is the only addition allowed before the text.`
     : "";
 
   const system = [
-    `You are a voice director preparing a script for ElevenLabs v3 TTS in ${languageEnglishName}.`,
-    "Rewrite the script so it sounds NATURAL and human when spoken, WITHOUT changing",
-    "the meaning, adding facts, or removing content. You may only adjust punctuation",
-    "and insert performance cues. Specifically:",
-    "- Add natural punctuation generously: commas, periods, ellipses (…) for pauses and",
-    "hesitation, exclamation marks for emphasis, em dashes (—) for interruptions.",
-    "- Break long sentences into shorter ones so the delivery can breathe.",
-    "- Insert brief pauses where a person would naturally pause (after a greeting, before",
-    "an important point, between ideas) using ellipses (…) or a [short pause] tag.",
-    "- Insert ElevenLabs audio tags in square brackets where tone calls for it, e.g.",
-    "[warmly], [excited], [serious], [curious], [reassuring], [smiles], [short pause].",
-    "Use AT MOST one tag every 1-2 sentences. Do not overuse them.",
+    `You are a TTS markup tool for ElevenLabs v3 in ${languageEnglishName}.`,
+    "Your ONLY job is to ADD punctuation and bracketed performance cues BETWEEN the",
+    "existing words. You are FORBIDDEN from changing the words themselves.",
+    "",
+    "ABSOLUTE RULES — these override everything else:",
+    "- Output every original word EXACTLY as written, in the same order, with the same",
+    "  spelling. Do NOT replace, translate, paraphrase, soften, censor, formalize, or",
+    "  'improve' ANY word. Slang, informal phrasing, regional words and profanity MUST",
+    "  remain verbatim (e.g. do not change 'carajo', 'joda', 'hacete', 'che').",
+    "- Do NOT add or remove words. The word sequence must be identical to the input.",
+    "",
+    "WHAT YOU MAY ADD (only between/around the unchanged words):",
+    "- Punctuation for natural rhythm: commas, periods, ellipses (…), exclamation marks,",
+    "  em dashes (—).",
+    "- ElevenLabs audio tags in square brackets, e.g. [warmly], [excited], [serious],",
+    "  [reassuring], [short pause]. Use AT MOST one tag every 1-2 sentences.",
     accentLine,
-    "- Keep tags and any cue words in English (the model expects English tags), but the",
-    "spoken script text stays in the original language.",
-    "- Do NOT wrap the output in quotes or add commentary.",
-    "Return ONLY the final script, ready to send to TTS.",
+    "- Tags stay in English; the spoken words stay in the original language, verbatim.",
+    "",
+    "Think of it as inserting markup into a locked transcript: you may add symbols and",
+    "[tags] in the gaps, never edit the words. Do NOT wrap output in quotes or add",
+    "commentary. Return ONLY the marked-up script.",
   ]
     .filter(Boolean)
-    .join(" ");
+    .join("\n");
 
-  return chat(system, text);
+  const result = await chat(system, text);
+
+  // SAFETY NET: verify the model didn't alter the words. Strip tags, punctuation
+  // and accent markup from the result, then compare the bare word sequence to the
+  // original. If they differ, the enrichment misbehaved — discard it and use the
+  // user's exact text, so the spoken script ALWAYS matches what was written.
+  if (!wordsPreserved(text, result)) {
+    console.warn("[enrich] word mismatch — falling back to original script");
+    return text;
+  }
+  return result;
+}
+
+// Compare the word content of original vs enriched, ignoring anything the
+// enrichment is allowed to add: [bracket tags], punctuation, and extra spaces.
+function wordsPreserved(original: string, enriched: string): boolean {
+  const normalize = (s: string) =>
+    s
+      .replace(/\[[^\]]*\]/g, " ")          // remove [audio tags]
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")       // strip accents (é → e)
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")     // strip punctuation/symbols
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const a = normalize(original).split(" ").filter(Boolean);
+  const b = normalize(enriched).split(" ").filter(Boolean);
+
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
