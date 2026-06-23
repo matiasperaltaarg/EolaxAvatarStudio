@@ -85,8 +85,12 @@ export default function Studio({
   // non-serverless-ffmpeg approach.
   const [wardrobeId, setWardrobeId] = useState<string>("");
   const [backgroundId, setBackgroundId] = useState<string>("");
-  const [lookMode, setLookMode] = useState<"preset" | "free">("preset");
+  const [lookMode, setLookMode] = useState<"preset" | "free" | "tryon">("preset");
   const [freePrompt, setFreePrompt] = useState<string>("");
+  // Try-on (wardrobe by reference photo): upload a real garment photo + an
+  // optional short description. Writes its result into the SAME look state.
+  const [garmentFile, setGarmentFile] = useState<File | null>(null);
+  const [garmentDescription, setGarmentDescription] = useState<string>("");
   const [lookImageUrl, setLookImageUrl] = useState<string | null>(null);
   const [lookKey, setLookKey] = useState<string>(""); // selection the look image matches
   const [applyingLook, setApplyingLook] = useState(false);
@@ -109,10 +113,22 @@ export default function Studio({
   const estSeconds = estimateDurationSeconds(script);
 
   const trimmedFreePrompt = freePrompt.trim();
+  const trimmedGarmentDesc = garmentDescription.trim();
+  const garmentSig = garmentFile
+    ? `${garmentFile.name}|${garmentFile.size}|${trimmedGarmentDesc}`
+    : "";
   const hasLookSelection =
-    lookMode === "free" ? trimmedFreePrompt.length > 0 : Boolean(wardrobeId && backgroundId);
+    lookMode === "free"
+      ? trimmedFreePrompt.length > 0
+      : lookMode === "tryon"
+        ? garmentFile !== null
+        : Boolean(wardrobeId && backgroundId);
   const currentLookKey =
-    lookMode === "free" ? `free|${trimmedFreePrompt}` : `preset|${wardrobeId}|${backgroundId}`;
+    lookMode === "free"
+      ? `free|${trimmedFreePrompt}`
+      : lookMode === "tryon"
+        ? `tryon|${garmentSig}`
+        : `preset|${wardrobeId}|${backgroundId}`;
   const lookReady = lookImageUrl !== null && lookKey === currentLookKey;
 
   // Credit pre-check: estimate seconds × number of languages. The ACTUAL
@@ -141,6 +157,8 @@ export default function Studio({
     setBackgroundId("");
     setLookMode(a.wardrobe.length === 0 && a.background.length === 0 ? "free" : "preset");
     setFreePrompt("");
+    setGarmentFile(null);
+    setGarmentDescription("");
     setLookImageUrl(null);
     setLookKey("");
     setLookError(null);
@@ -194,7 +212,35 @@ export default function Studio({
     }
   }
 
+  // Try-on: upload the garment + avatar reference photo to /api/studio/tryon and
+  // write the result into the SAME look state, so it flows through the video
+  // pipeline exactly like a look (preset/free) result.
+  async function applyTryOn(): Promise<string> {
+    if (!selectedAvatar || !garmentFile) throw new Error("Subí una foto de la prenda.");
+    setApplyingLook(true);
+    setLookError(null);
+    try {
+      const fd = new FormData();
+      fd.append("avatarId", selectedAvatar.id);
+      fd.append("garment", garmentFile);
+      fd.append("description", trimmedGarmentDesc);
+      if (baseImagePath) fd.append("baseImagePath", baseImagePath);
+      const res = await fetch("/api/studio/tryon", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "No se pudo aplicar el vestuario.");
+      setLookImageUrl(json.imageUrl);
+      setLookKey(currentLookKey);
+      return json.imageUrl as string;
+    } catch (e) {
+      setLookError(e instanceof Error ? e.message : "No se pudo aplicar el vestuario.");
+      throw e;
+    } finally {
+      setApplyingLook(false);
+    }
+  }
+
   async function applyLook(): Promise<string> {
+    if (lookMode === "tryon") return applyTryOn();
     if (!selectedAvatar || !hasLookSelection) throw new Error("Select a look first.");
     setApplyingLook(true);
     setLookError(null);
@@ -711,6 +757,17 @@ export default function Studio({
                 >
                   Descripción libre
                 </button>
+                <button
+                  type="button"
+                  className={lookMode === "tryon" ? "secondary active" : "secondary"}
+                  onClick={() => {
+                    setLookMode("tryon");
+                    setLookError(null);
+                  }}
+                  aria-pressed={lookMode === "tryon"}
+                >
+                  Vestuario por foto
+                </button>
               </div>
 
               {lookMode === "preset" ? (
@@ -754,7 +811,7 @@ export default function Studio({
                     avatar antes del vídeo — elige uno de cada y previsualiza.
                   </p>
                 </>
-              ) : (
+              ) : lookMode === "free" ? (
                 <>
                   <label htmlFor="freePrompt">Describe la apariencia</label>
                   <textarea
@@ -773,6 +830,42 @@ export default function Studio({
                     identidad del avatar se mantienen. {trimmedFreePrompt.length}/600
                   </p>
                 </>
+              ) : (
+                <>
+                  <label htmlFor="garmentPhoto">Foto de la prenda</label>
+                  <input
+                    id="garmentPhoto"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(e) => {
+                      setGarmentFile(e.target.files?.[0] ?? null);
+                      setLookImageUrl(null);
+                      setLookKey("");
+                      setLookError(null);
+                    }}
+                  />
+
+                  <label htmlFor="garmentDesc">Descripción de la prenda (opcional)</label>
+                  <input
+                    id="garmentDesc"
+                    type="text"
+                    value={garmentDescription}
+                    maxLength={200}
+                    placeholder="Ej: camiseta de fútbol a rayas celeste y blanca"
+                    onChange={(e) => {
+                      setGarmentDescription(e.target.value);
+                      setLookImageUrl(null);
+                      setLookKey("");
+                      setLookError(null);
+                    }}
+                  />
+
+                  <p className="muted small">
+                    Subí la foto de una prenda real (sola, fondo limpio, tipo
+                    catálogo) y se la pone al avatar conservando su cara y pose, con
+                    el diseño real (escudo, sponsor, colores).
+                  </p>
+                </>
               )}
 
               <button
@@ -784,10 +877,16 @@ export default function Studio({
                 disabled={!hasLookSelection || applyingLook}
               >
                 {applyingLook
-                  ? "Aplicando apariencia…"
+                  ? lookMode === "tryon"
+                    ? "Aplicando vestuario…"
+                    : "Aplicando apariencia…"
                   : lookReady
-                    ? "Apariencia aplicada ✓ — volver a previsualizar"
-                    : "Previsualizar apariencia"}
+                    ? lookMode === "tryon"
+                      ? "Vestuario aplicado ✓ — volver a previsualizar"
+                      : "Apariencia aplicada ✓ — volver a previsualizar"
+                    : lookMode === "tryon"
+                      ? "Aplicar vestuario"
+                      : "Previsualizar apariencia"}
               </button>
               {lookError ? <p className="error">{lookError}</p> : null}
             </>
