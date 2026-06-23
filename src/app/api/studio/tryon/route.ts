@@ -1,14 +1,14 @@
-// src/app/api/studio/tryon/route.ts
-// Virtual try-on: upload a garment photo + use the avatar's reference photo,
-// transfer the real garment onto the avatar (preserving face/identity/pose and
-// the garment's real design/logos), store the result, return a signed URL that
-// the Studio uses as the InfiniteTalk input image — same contract as /look.
+// src/app/api/studio/tryon/route.ts  (REPLACE the idm-vton version with this)
+// Outfit composition via Gemini (Nano Banana 2). Accepts the avatar's photo +
+// 0..N garment reference photos + a text instruction describing the FULL outfit.
+// Returns a signed URL the Studio uses as the InfiniteTalk input image — same
+// contract as /look.
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createHash } from "crypto";
 import { authedContext } from "@/lib/studio-auth";
 import { GENERATED_CONTENT_BUCKET, REFERENCE_PHOTOS_BUCKET } from "@/lib/avatars";
-import { tryOnGarment } from "@/lib/replicate";
+import { composeOutfit, type RefImage } from "@/lib/gemini-image";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { logApiUsage } from "@/lib/usageLog";
@@ -16,17 +16,25 @@ import { logApiUsage } from "@/lib/usageLog";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MAX_GARMENT_BYTES = 8 * 1024 * 1024; // 8 MB
+const MAX_IMG_BYTES = 8 * 1024 * 1024; // 8 MB per image
+const MAX_GARMENTS = 4;                // Gemini control degrades past ~4 items
+
+async function fileToRef(file: File): Promise<RefImage> {
+  const bytes = Buffer.from(await file.arrayBuffer());
+  return { base64: bytes.toString("base64"), mimeType: file.type || "image/png" };
+}
 
 // POST /api/studio/tryon  (multipart/form-data)
-//   fields: avatarId (string), garment (File), description (string, optional),
-//           baseImagePath (string, optional — choose which avatar photo)
+//   avatarId       (string, required)
+//   instruction    (string, required) — full outfit description
+//   garment        (File, repeatable, optional) — real garment reference photos
+//   baseImagePath  (string, optional) — which avatar photo to dress
 export async function POST(request: NextRequest) {
   const ctx = await authedContext();
   if (!ctx) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
   const admin = createAdminClient();
-  const rl = await checkRateLimit(admin, ctx.accountId, "tryon", { perMinute: 15 });
+  const rl = await checkRateLimit(admin, ctx.accountId, "tryon", { perMinute: 12 });
   if (!rl.allowed) {
     return NextResponse.json(
       { error: "Demasiadas solicitudes de vestuario. Intenta en un minuto." },
@@ -42,16 +50,27 @@ export async function POST(request: NextRequest) {
   }
 
   const avatarId = String(form.get("avatarId") ?? "");
-  const description = String(form.get("description") ?? "").slice(0, 200);
+  const instruction = String(form.get("instruction") ?? "").trim().slice(0, 600);
   const requestedBase = form.get("baseImagePath");
-  const garment = form.get("garment");
+  const garmentFiles = form.getAll("garment").filter((g): g is File => g instanceof File);
 
   if (!avatarId) return NextResponse.json({ error: "Missing avatar." }, { status: 400 });
-  if (!(garment instanceof File)) {
-    return NextResponse.json({ error: "Subí una foto de la prenda." }, { status: 400 });
+  if (!instruction) {
+    return NextResponse.json(
+      { error: "Describí el vestuario (ej: 'camiseta de la foto, short negro y botines blancos')." },
+      { status: 400 }
+    );
   }
-  if (garment.size > MAX_GARMENT_BYTES) {
-    return NextResponse.json({ error: "La foto de la prenda supera los 8 MB." }, { status: 400 });
+  if (garmentFiles.length > MAX_GARMENTS) {
+    return NextResponse.json(
+      { error: `Máximo ${MAX_GARMENTS} fotos de prenda por vez.` },
+      { status: 400 }
+    );
+  }
+  for (const g of garmentFiles) {
+    if (g.size > MAX_IMG_BYTES) {
+      return NextResponse.json({ error: "Cada foto de prenda debe pesar menos de 8 MB." }, { status: 400 });
+    }
   }
 
   // Ownership + reference photo.
@@ -73,30 +92,32 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Upload the garment photo to a temp location in reference-photos.
-    const garmentBytes = Buffer.from(await garment.arrayBuffer());
-    const garmentHash = createHash("sha256").update(garmentBytes).digest("hex").slice(0, 16);
-    const garmentPath = `${prefix}garments/${garmentHash}.png`;
-    const { error: gErr } = await ctx.supabase.storage
+    // Load the person photo as base64.
+    const { data: personBlob } = await ctx.supabase.storage
       .from(REFERENCE_PHOTOS_BUCKET)
-      .upload(garmentPath, garmentBytes, { contentType: garment.type || "image/png", upsert: true });
-    if (gErr) throw new Error(gErr.message);
+      .download(personPath);
+    if (!personBlob) throw new Error("Could not read the avatar photo.");
+    const personBuf = Buffer.from(await personBlob.arrayBuffer());
+    const personImage: RefImage = {
+      base64: personBuf.toString("base64"),
+      mimeType: personBlob.type || "image/png",
+    };
 
-    // Signed URLs for both inputs.
-    const [{ data: personSigned }, { data: garmentSigned }] = await Promise.all([
-      ctx.supabase.storage.from(REFERENCE_PHOTOS_BUCKET).createSignedUrl(personPath, 3600),
-      ctx.supabase.storage.from(REFERENCE_PHOTOS_BUCKET).createSignedUrl(garmentPath, 3600),
-    ]);
-    if (!personSigned?.signedUrl || !garmentSigned?.signedUrl) {
-      throw new Error("Could not read the input photos.");
+    // Garment reference images (optional).
+    const garmentImages: RefImage[] = [];
+    const garmentHashes: string[] = [];
+    for (const g of garmentFiles) {
+      const ref = await fileToRef(g);
+      garmentImages.push(ref);
+      garmentHashes.push(createHash("sha256").update(ref.base64).digest("hex").slice(0, 12));
     }
 
-    // Cache by (avatar, person photo, garment hash, description).
+    // Cache key: person photo + instruction + garment hashes.
     const cacheHash = createHash("sha256")
-      .update(`${personPath}|${garmentHash}|${description}`)
+      .update(`${personPath}|${instruction}|${garmentHashes.join(",")}`)
       .digest("hex")
       .slice(0, 32);
-    const imagePath = `${prefix}looks/tryon_${cacheHash}.png`;
+    const imagePath = `${prefix}looks/outfit_${cacheHash}.png`;
 
     const { data: cached } = await ctx.supabase
       .from("avatar_look_cache")
@@ -113,27 +134,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const resultUrl = await tryOnGarment({
-      personUrl: personSigned.signedUrl,
-      garmentUrl: garmentSigned.signedUrl,
-      garmentDescription: description,
-    });
+    const out = await composeOutfit({ personImage, garmentImages, instruction });
 
     await logApiUsage(admin, {
       accountId: ctx.accountId,
-      provider: "replicate",
+      provider: "gemini",
       route: "tryon",
-      costUsdEst: 0.05,
+      costUsdEst: 0.07,
       status: "ok",
     });
 
-    const res = await fetch(resultUrl);
-    if (!res.ok) throw new Error(`Could not download the try-on image (${res.status}).`);
-    const bytes = Buffer.from(await res.arrayBuffer());
-
+    const bytes = Buffer.from(out.base64, "base64");
     const { error: upErr } = await ctx.supabase.storage
       .from(GENERATED_CONTENT_BUCKET)
-      .upload(imagePath, bytes, { contentType: "image/png", upsert: true });
+      .upload(imagePath, bytes, { contentType: out.mimeType, upsert: true });
     if (upErr) throw new Error(upErr.message);
 
     await ctx.supabase
@@ -149,10 +163,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ imageUrl: signed?.signedUrl ?? null, cached: false });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Could not apply the garment.";
+    const message = e instanceof Error ? e.message : "Could not apply the outfit.";
     await logApiUsage(admin, {
       accountId: ctx.accountId,
-      provider: "replicate",
+      provider: "gemini",
       route: "tryon",
       costUsdEst: 0,
       status: "error",
