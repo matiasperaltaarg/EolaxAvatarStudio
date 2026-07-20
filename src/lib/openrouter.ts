@@ -17,7 +17,7 @@ function getApiKey(): string {
   return key;
 }
 
-async function chat(system: string, user: string): Promise<string> {
+async function chat(system: string, user: string, temperature = 0.7): Promise<string> {
   const res = await fetch(API_URL, {
     method: "POST",
     headers: {
@@ -32,7 +32,7 @@ async function chat(system: string, user: string): Promise<string> {
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      temperature: 0.7,
+      temperature,
     }),
   });
 
@@ -51,25 +51,51 @@ async function chat(system: string, user: string): Promise<string> {
   return content;
 }
 
-// Improve a script for social media, matching the avatar's personality/tone.
+// Adjust a script's DELIVERY for spoken/TTS fluency (ElevenLabs v3) without
+// rewriting its content. This is NOT a copywriter rewrite — the user's exact
+// words, wording, register and length must be preserved. v3 already handles
+// natural prosody from punctuation/casing/audio-tags, so we lean on that
+// instead of phonetic spellings (e.g. "amooor"), which are a legacy TTS trick
+// this model doesn't need.
 export async function improveScript(
   script: string,
   personality: string | null
 ): Promise<string> {
   const personalityNote = personality
-    ? `The avatar's personality/tone to match: "${personality}".`
-    : "No specific personality is set; use a warm, engaging brand voice.";
+    ? `The avatar's personality/tone (do not use this to change wording, only as context): "${personality}".`
+    : "";
 
   const system = [
-    "You are a social-media scriptwriter for short talking-head videos.",
-    "Rewrite the user's script to be concise, engaging and natural when spoken aloud,",
-    "with a clear hook at the start and a clear call-to-action at the end.",
-    "Keep it roughly the same length (short — suitable for a 15-40s clip).",
+    "You are a delivery/fluency editor for a script that will be read aloud",
+    "by an ElevenLabs v3 text-to-speech voice. Your ONLY job is to make the",
+    "text read more naturally and fluidly out loud — you are NOT a copywriter",
+    "and must NOT rewrite, rephrase, shorten, summarize, add or remove content.",
+    "",
+    "STRICT RULES:",
+    "- Keep every single word the user wrote, in the same order and register",
+    "(including slang, regionalisms, elongated words like 'amooor', informal",
+    "spelling, etc.). Do not swap words for synonyms and do not paraphrase.",
+    "- Do not shorten or condense. Do not add a new hook, CTA, or any sentence",
+    "that wasn't already there in some form.",
+    "- You MAY adjust: punctuation (commas, ellipses '…' for pauses, periods",
+    "to break run-on sentences into breath-sized chunks), capitalization for",
+    "emphasis on a word ElevenLabs v3 should stress, and line breaks.",
+    "- You MAY insert ElevenLabs v3 audio tags in brackets (e.g. [laughs],",
+    "[pausa], [suspiro], [enfático]) ONLY where the tone clearly calls for it —",
+    "use them sparingly, never more than one every few sentences.",
+    "- Do NOT invent phonetic spellings or repeat letters that weren't already",
+    "in the original text (e.g. don't turn 'amor' into 'amooor' yourself) —",
+    "v3 reads emotional emphasis correctly from normal punctuation and tags;",
+    "only preserve elongations the user already wrote.",
     personalityNote,
-    "Return ONLY the improved script text, with no preamble, quotes or commentary.",
-  ].join(" ");
+    "Return ONLY the adjusted script text, with no preamble, quotes or commentary.",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
-  return chat(system, script);
+  // Lower temperature than the default: this task should behave like a
+  // deterministic formatter, not a creative rewrite.
+  return chat(system, script, 0.2);
 }
 
 // Translate a script into the target language, preserving tone and length.
