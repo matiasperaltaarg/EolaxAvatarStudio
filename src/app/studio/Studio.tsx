@@ -660,14 +660,30 @@ export default function Studio({
             <span className="muted small">
               {charCount} caracteres · ~{estSeconds}s
             </span>
-            <button
-              type="button"
-              className="secondary"
-              onClick={onImprove}
-              disabled={improving || !script.trim()}
-            >
-              {improving ? "Mejorando…" : "✨ Mejorar con IA"}
-            </button>
+            <div className="row" style={{ gap: 8, alignItems: "center" }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={onImprove}
+                disabled={improving || !script.trim()}
+              >
+                {improving ? "Mejorando…" : "✨ Mejorar con IA"}
+              </button>
+              <span className="info-tip">
+                <button
+                  type="button"
+                  className="info-tip__btn"
+                  aria-label="¿Para qué sirve Mejorar con IA?"
+                >
+                  ⓘ
+                </button>
+                <span className="info-tip__bubble" role="tooltip">
+                  Ajusta la <strong>puntuación y las pausas</strong> para que
+                  se lea más fluido en voz. No reescribe ni acorta tu guion —
+                  las palabras que escribiste quedan igual.
+                </span>
+              </span>
+            </div>
           </div>
           {improveError ? <p className="error">{improveError}</p> : null}
           {suggestion ? (

@@ -156,6 +156,58 @@ h1 {
   font-size: 14px;
   margin-bottom: 12px;
 }
+/* Info tooltip — hover (desktop) + tap/focus (mobile/keyboard). No JS needed. */
+.info-tip {
+  position: relative;
+  display: inline-flex;
+}
+.info-tip__btn {
+  all: unset;
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--line-solid);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.info-tip__btn:hover,
+.info-tip__btn:focus-visible {
+  color: var(--text);
+  border-color: var(--violet);
+}
+.info-tip__bubble {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  width: 240px;
+  max-width: 70vw;
+  background: var(--panel-2);
+  border: 1px solid var(--line-solid);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.info-tip__btn:hover + .info-tip__bubble,
+.info-tip__btn:focus-visible + .info-tip__bubble,
+.info-tip__btn:focus + .info-tip__bubble {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;

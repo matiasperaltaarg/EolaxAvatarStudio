@@ -165,6 +165,7 @@ No hay runner automático. Todas idempotentes.
 | 0012 | api_usage_log (costos) |
 | 0013 | Limpia looks "envenenados" (cache de collages viejos) |
 | 0014 | `profiles.account_id` (multi-cuenta simple) |
+| 0015 | **Endurecimiento de RLS**: scoping real por cuenta + bypass admin; helpers `current_account_id()` / `is_platform_admin()`; tablas de dinero/log en SELECT-only; RLS en rate_events/api_usage_log |
 
 ---
 
@@ -206,15 +207,18 @@ GEMINI_API_KEY (+ GEMINI_IMAGE_MODEL)
 
 ## 9. Deuda técnica / cosas a saber
 
-- **RLS permisivo** (placeholder Phase 0: cualquier usuario autenticado, acceso
-  total). OK para MVP, hay que endurecerlo para multi-tenant real.
+- **RLS endurecido en la DB (migración 0015)** — scoping real por cuenta vía
+  `current_account_id()` con bypass admin (`is_platform_admin()`). Las tablas de
+  dinero/auditoría son SELECT-only para el usuario (las escrituras van por
+  service-role). **Pendiente:** requiere correr la 0015 a mano en Supabase; y las
+  **policies de Storage (buckets)** siguen sin endurecer (sistema aparte).
 - **Sin ffmpeg / post-proceso de video** — el output de WaveSpeed se guarda tal
   cual. La marca de agua de "contenido IA" se removió a propósito.
 - **`credit_packs.pack_type`** ya no tiene CHECK (dropeado en 0008) para permitir
   packs custom del admin. La constante `PACKS` en `credits.ts` sigue siendo solo
   para labels de display.
-- **`SESSION_HANDOFF.md`** está desactualizado (fecha 2026-06-11, describe hasta
-  BLOQUE 2 / migración 0008). Este `CLAUDE.md` es la referencia vigente.
+- **`SESSION_HANDOFF.md`** fue **retirado** (estaba desactualizado, describía hasta
+  la migración 0008). Este `CLAUDE.md` es la única referencia vigente.
 
 ---
 
@@ -223,6 +227,13 @@ GEMINI_API_KEY (+ GEMINI_IMAGE_MODEL)
 > Anotá acá cada sesión de trabajo relevante: qué se hizo, qué migración se
 > agregó, qué decisión se tomó. Lo más nuevo arriba.
 
+- **2026-07-20** (2ª tanda) — Tres cambios: (1) **RLS endurecido** (migración
+  `0015_rls_hardening.sql`): scoping real por cuenta con bypass admin, tablas de
+  dinero/log en SELECT-only, RLS habilitado en `rate_events`/`api_usage_log`
+  (⚠️ correr a mano en Supabase). (2) **`improveScript`** (`openrouter.ts`)
+  dejó de reescribir el guion como copywriter — ahora solo ajusta fluidez de
+  lectura para TTS (mismas palabras; temperatura 0.7→0.2) + tooltip ⓘ en el
+  botón "Mejorar con IA" del studio. (3) Se **retiró `SESSION_HANDOFF.md`**.
 - **2026-07-20** — Se crea este `CLAUDE.md` como documentación viva del repo
   (antes solo existía la referencia en el README, pero el archivo no estaba).
   Estado del repo al momento: migraciones hasta 0014, multi-cuenta por
