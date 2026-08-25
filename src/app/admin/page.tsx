@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isAdmin } from "@/lib/admin";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getBalanceSeconds } from "@/lib/credits";
+import { getBalanceSeconds, getVideoChargeLog, type VideoChargeRow } from "@/lib/credits";
 import AppShell from "@/app/AppShell";
 import { grantVideoTime } from "./actions";
 import AdminToast from "./AdminToast";
@@ -90,33 +90,21 @@ export default async function AdminPage({
   };
   let videoPacks: PackRow[] = [];
 
-  type VideoLogRow = {
-    seconds_charged: number;
-    created_at: string;
-    videos: { language: string | null; avatars: { name: string } | null } | null;
-  };
-  let videoLog: VideoLogRow[] = [];
+  let videoLog: VideoChargeRow[] = [];
 
   if (selected) {
-    const [vb, vpRes, vlRes] = await Promise.all([
+    const [vb, vpRes, vl] = await Promise.all([
       getBalanceSeconds(admin, selected.id),
       admin
         .from("credit_packs")
         .select("id, pack_type, seconds_total, seconds_used, purchased_at, expires_at")
         .eq("account_id", selected.id)
         .order("purchased_at", { ascending: false }),
-      admin
-        .from("generations_log")
-        .select(
-          "seconds_charged, created_at, videos!inner(language, avatars!inner(name, account_id))"
-        )
-        .eq("videos.avatars.account_id", selected.id)
-        .order("created_at", { ascending: false })
-        .limit(50),
+      getVideoChargeLog(admin, selected.id, 50),
     ]);
     videoBalance = vb;
     videoPacks = (vpRes.data ?? []) as PackRow[];
-    videoLog = (vlRes.data ?? []) as unknown as VideoLogRow[];
+    videoLog = vl;
   }
 
   const now = Date.now();
@@ -298,9 +286,9 @@ export default async function AdminPage({
                   {videoLog.map((row, i) => (
                     <li key={i} className="pack-row">
                       <div>
-                        <strong>{row.videos?.avatars?.name ?? "Avatar"}</strong>
+                        <strong>{row.avatar_name ?? "Avatar"}</strong>
                         <span className="muted small">
-                          {" "}· {row.videos?.language ?? "—"}
+                          {" "}· {row.language ?? "—"}
                         </span>
                       </div>
                       <div className="muted small">

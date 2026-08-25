@@ -5,7 +5,7 @@
 > algo importante (arquitectura, migración, ruta, decisión), anotalo acá —
 > especialmente en el **Registro de cambios** al final.
 >
-> Última actualización: 2026-07-20
+> Última actualización: 2026-08-25
 
 ---
 
@@ -121,6 +121,7 @@ Lógica en `src/lib/credits.ts`.
 | `face-guard.ts` | Verifica 1 sola cara / no-collage antes del video |
 | `rateLimit.ts` | Rate limiting por cuenta/ruta |
 | `usageLog.ts` | Log de costos de APIs |
+| `storage.ts` | Helpers de borrado en Storage (listado recursivo, cleanup best-effort) |
 | `studio-auth.ts` | `authedContext()` compartido por las rutas de studio |
 | `brand.ts` | Config de marca (nombre, tagline, logo) |
 
@@ -137,6 +138,8 @@ Lógica en `src/lib/credits.ts`.
 
 Layout: `AppShell.tsx` (server, computa balances + isAdmin) → `Sidebar.tsx`
 (cliente, nav + créditos) → `BrandMark.tsx` (logo EOLAX).
+Compartidos: `Toast.tsx` (feedback vía `?ok=` / `?error=`) y `ConfirmSubmit.tsx`
+(botón submit con `confirm()` + estado pending, para acciones destructivas).
 
 ### API routes (`src/app/api/studio/` salvo indicado)
 `voice`, `improve`, `translate`, `look`, `tryon`, `fuse`, `finalize`,
@@ -166,6 +169,7 @@ No hay runner automático. Todas idempotentes.
 | 0013 | Limpia looks "envenenados" (cache de collages viejos) |
 | 0014 | `profiles.account_id` (multi-cuenta simple) |
 | 0015 | **Endurecimiento de RLS**: scoping real por cuenta + bypass admin; helpers `current_account_id()` / `is_platform_admin()`; tablas de dinero/log en SELECT-only; RLS en rate_events/api_usage_log |
+| 0016 | **Borrado sin perder auditoría**: `generations_log.video_id` nullable + `on delete set null`, columnas desnormalizadas (`account_id`, `avatar_name`, `language`), policy por cuenta y RPC `debit_video_seconds` actualizada |
 
 ---
 
@@ -217,6 +221,14 @@ GEMINI_API_KEY (+ GEMINI_IMAGE_MODEL)
 - **`credit_packs.pack_type`** ya no tiene CHECK (dropeado en 0008) para permitir
   packs custom del admin. La constante `PACKS` en `credits.ts` sigue siendo solo
   para labels de display.
+- **Borrar contenido no devuelve créditos** — es a propósito: el render ya se
+  pagó. Por eso la 0016 desacopla `generations_log` del vídeo: el cargo
+  sobrevive al borrado y el "Consumo reciente" sigue cuadrando con el saldo.
+  `getVideoChargeLog()` (`credits.ts`) tiene fallback al query viejo por si la
+  0016 todavía no se corrió.
+- **`avatar_creation_log` sí se borra en cascada** al eliminar un avatar (es un
+  guard de idempotencia interno, no se muestra en ninguna pantalla). El crédito
+  de avatar consumido sigue descontado en `avatar_credit_packs.credits_used`.
 - **`SESSION_HANDOFF.md`** fue **retirado** (estaba desactualizado, describía hasta
   la migración 0008). Este `CLAUDE.md` es la única referencia vigente.
 
@@ -227,6 +239,17 @@ GEMINI_API_KEY (+ GEMINI_IMAGE_MODEL)
 > Anotá acá cada sesión de trabajo relevante: qué se hizo, qué migración se
 > agregó, qué decisión se tomó. Lo más nuevo arriba.
 
+- **2026-08-25** — **Borrado desde la app**. Antes solo se podían borrar fotos
+  de referencia. Ahora: (1) **vídeos** desde `/gallery` (borra el MP4 de Storage
+  + la fila); (2) **avatares** desde `/avatars` (por fila) y desde el detalle,
+  con limpieza completa: fotos, audios de voz, vídeos generados y la voz clonada
+  en ElevenLabs; (3) **voz clonada** sola, sin borrar el avatar. Todas las
+  acciones destructivas pasan por `ConfirmSubmit` (diálogo de confirmación) y
+  verifican `account_id` además de RLS. Migración **0016**: `generations_log`
+  deja de morir con el vídeo (FK `on delete set null` + `account_id`/
+  `avatar_name`/`language` desnormalizados) para que borrar contenido no borre
+  la auditoría de créditos; se actualizó la RPC `debit_video_seconds` y la
+  policy de SELECT (⚠️ correr a mano en Supabase, después de la 0015).
 - **2026-07-20** (2ª tanda) — Tres cambios: (1) **RLS endurecido** (migración
   `0015_rls_hardening.sql`): scoping real por cuenta con bypass admin, tablas de
   dinero/log en SELECT-only, RLS habilitado en `rate_events`/`api_usage_log`
