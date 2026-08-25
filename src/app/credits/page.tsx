@@ -1,7 +1,13 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountId } from "@/lib/account";
-import { PACKS, getBalanceSeconds, type CreditPack } from "@/lib/credits";
+import {
+  PACKS,
+  getBalanceSeconds,
+  getVideoChargeLog,
+  type CreditPack,
+  type VideoChargeRow,
+} from "@/lib/credits";
 import { languageLabel } from "@/lib/avatars";
 import AppShell from "@/app/AppShell";
 
@@ -13,12 +19,6 @@ function mmss(total: number): string {
   return `${m}m ${s}s`;
 }
 
-type LogRow = {
-  seconds_charged: number;
-  created_at: string;
-  videos: { language: string | null; avatars: { name: string } | null } | null;
-};
-
 export default async function CreditsPage() {
   const supabase = await createClient();
   const {
@@ -28,23 +28,18 @@ export default async function CreditsPage() {
 
   const accountId = await getAccountId();
 
-  const [balance, packsRes, logRes] = await Promise.all([
+  const [balance, packsRes, log] = await Promise.all([
     getBalanceSeconds(supabase, accountId),
     supabase
       .from("credit_packs")
       .select("*")
       .eq("account_id", accountId)
       .order("purchased_at", { ascending: false }),
-    supabase
-      .from("generations_log")
-      .select("seconds_charged, created_at, videos!inner(language, avatars!inner(name, account_id))")
-      .eq("videos.avatars.account_id", accountId)
-      .order("created_at", { ascending: false })
-      .limit(25),
+    getVideoChargeLog(supabase, accountId, 25),
   ]);
 
   const packs = (packsRes.data ?? []) as CreditPack[];
-  const log = (logRes.data ?? []) as unknown as LogRow[];
+
   const now = Date.now();
 
   return (
@@ -109,12 +104,12 @@ export default async function CreditsPage() {
           <p className="muted">Aún no se ha cobrado ninguna generación.</p>
         ) : (
           <ul className="pack-list">
-            {log.map((row, i) => (
+            {log.map((row: VideoChargeRow, i: number) => (
               <li key={i} className="pack-row">
                 <div>
-                  <strong>{row.videos?.avatars?.name ?? "Avatar"}</strong>
+                  <strong>{row.avatar_name ?? "Avatar"}</strong>
                   <span className="muted small">
-                    {" "}· {row.videos?.language ? languageLabel(row.videos.language) : "—"}
+                    {" "}· {row.language ? languageLabel(row.language) : "—"}
                   </span>
                 </div>
                 <div className="muted small">

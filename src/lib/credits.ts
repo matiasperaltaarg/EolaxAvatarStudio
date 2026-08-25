@@ -122,6 +122,55 @@ export async function atomicDebitForVideo(
 }
 
 // ---------------------------------------------------------------------------
+// Consumption log (shown on /credits and /admin)
+// ---------------------------------------------------------------------------
+
+export type VideoChargeRow = {
+  seconds_charged: number;
+  created_at: string;
+  avatar_name: string | null;
+  language: string | null;
+};
+
+// Recent video charges for an account. Reads the denormalised columns added in
+// migration 0016 so a charge stays legible after its video (or the whole
+// avatar) is deleted — deleting content must never rewrite the money trail.
+// Falls back to the old join-based query while 0016 has not been applied yet.
+export async function getVideoChargeLog(
+  client: SupabaseClient,
+  accountId: string,
+  limit: number
+): Promise<VideoChargeRow[]> {
+  const { data, error } = await client
+    .from("generations_log")
+    .select("seconds_charged, created_at, avatar_name, language")
+    .eq("account_id", accountId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (!error) return (data ?? []) as VideoChargeRow[];
+
+  type LegacyRow = {
+    seconds_charged: number;
+    created_at: string;
+    videos: { language: string | null; avatars: { name: string } | null } | null;
+  };
+  const { data: legacy } = await client
+    .from("generations_log")
+    .select("seconds_charged, created_at, videos!inner(language, avatars!inner(name, account_id))")
+    .eq("videos.avatars.account_id", accountId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  return ((legacy ?? []) as unknown as LegacyRow[]).map((r) => ({
+    seconds_charged: r.seconds_charged,
+    created_at: r.created_at,
+    avatar_name: r.videos?.avatars?.name ?? null,
+    language: r.videos?.language ?? null,
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // Avatar credits — second currency
 // ---------------------------------------------------------------------------
 

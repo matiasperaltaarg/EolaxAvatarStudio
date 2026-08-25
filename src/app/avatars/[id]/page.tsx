@@ -14,11 +14,13 @@ import {
   confirmRights,
   deactivateAvatar,
   deleteAvatar,
+  deleteClonedVoice,
   deletePhoto,
   updateAvatar,
 } from "../actions";
 import AppShell from "@/app/AppShell";
-import Toast from "./Toast";
+import Toast from "@/app/Toast";
+import ConfirmSubmit from "@/app/ConfirmSubmit";
 import VoiceCloning from "./VoiceCloning";
 import VoiceTest from "./VoiceTest";
 
@@ -97,9 +99,14 @@ export default async function AvatarDetailPage({
                 <form action={deletePhoto}>
                   <input type="hidden" name="id" value={avatar.id} />
                   <input type="hidden" name="path" value={p.path} />
-                  <button className="photo-delete" type="submit" title="Eliminar foto">
+                  <ConfirmSubmit
+                    className="photo-delete"
+                    title="Eliminar foto"
+                    message="¿Eliminar esta foto de referencia?"
+                    pendingLabel="…"
+                  >
                     ✕
-                  </button>
+                  </ConfirmSubmit>
                 </form>
               </div>
             ))}
@@ -172,7 +179,10 @@ export default async function AvatarDetailPage({
       </section>
 
       {/* Voice cloning ----------------------------------------------------- */}
+      {/* key: remount when the voice is (re)cloned or deleted, so the card
+          never keeps showing a voice that no longer exists. */}
       <VoiceCloning
+        key={avatar.elevenlabs_voice_id ?? "no-voice"}
         avatarId={avatar.id}
         accountId={accountId}
         hasRights={avatar.rights_confirmed}
@@ -221,17 +231,49 @@ export default async function AvatarDetailPage({
 
       {/* Danger zone ------------------------------------------------------- */}
       <section className="card danger">
-        <h2>Eliminar</h2>
-        <p className="muted small">
-          Idioma actual: {languageLabel(avatar.default_language)}. Eliminar borra
-          el avatar y sus fotos de referencia de forma permanente.
-        </p>
-        <form action={deleteAvatar}>
-          <input type="hidden" name="id" value={avatar.id} />
-          <button className="danger-btn" type="submit">
-            Eliminar avatar
-          </button>
-        </form>
+        <h2>Zona de peligro</h2>
+
+        {avatar.elevenlabs_voice_id ? (
+          <div className="danger-action">
+            <div>
+              <strong>Eliminar voz clonada</strong>
+              <p className="muted small" style={{ margin: "2px 0 0" }}>
+                Borra la voz en ElevenLabs y los audios de referencia. El avatar
+                se mantiene y podés volver a clonar la voz cuando quieras.
+              </p>
+            </div>
+            <form action={deleteClonedVoice}>
+              <input type="hidden" name="id" value={avatar.id} />
+              <ConfirmSubmit
+                className="secondary danger-outline"
+                message="¿Eliminar la voz clonada de este avatar? Vas a tener que volver a grabar o subir audio para clonarla de nuevo."
+              >
+                Eliminar voz
+              </ConfirmSubmit>
+            </form>
+          </div>
+        ) : null}
+
+        <div className="danger-action">
+          <div>
+            <strong>Eliminar avatar</strong>
+            <p className="muted small" style={{ margin: "2px 0 0" }}>
+              Permanente. Borra el avatar, sus fotos de referencia, su voz
+              clonada y <strong>todos los vídeos generados con él</strong>.
+              Idioma actual: {languageLabel(avatar.default_language)}. No
+              devuelve créditos ya consumidos.
+            </p>
+          </div>
+          <form action={deleteAvatar}>
+            <input type="hidden" name="id" value={avatar.id} />
+            <ConfirmSubmit
+              className="danger-btn"
+              message={`¿Eliminar el avatar "${avatar.name}"? Se borran también sus fotos, su voz clonada y todos sus vídeos generados. Esta acción no se puede deshacer.`}
+            >
+              Eliminar avatar
+            </ConfirmSubmit>
+          </form>
+        </div>
       </section>
     </main>
     </AppShell>

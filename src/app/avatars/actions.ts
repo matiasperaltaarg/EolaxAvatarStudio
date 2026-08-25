@@ -4,7 +4,17 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAccountId } from "@/lib/account";
-import { REFERENCE_PHOTOS_BUCKET } from "@/lib/avatars";
+import {
+  GENERATED_CONTENT_BUCKET,
+  REFERENCE_PHOTOS_BUCKET,
+  VOICE_REFERENCES_BUCKET,
+} from "@/lib/avatars";
+import { deleteVoice as deleteElevenLabsVoice } from "@/lib/elevenlabs";
+import {
+  removeStorageFolder,
+  removeStorageObjects,
+  storageCleanupClient,
+} from "@/lib/storage";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -279,31 +289,122 @@ export async function deactivateAvatar(formData: FormData) {
 }
 
 // ---------------------------------------------------------------------------
-// Delete
+// Delete the cloned voice (keeps the avatar)
 // ---------------------------------------------------------------------------
 
+// Removes the ElevenLabs voice and the reference audio it was cloned from. The
+// avatar stays; a new voice can be cloned afterwards. Deleting the voice at
+// ElevenLabs matters — cloned voices count against the account's voice slots.
+export async function deleteClonedVoice(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  if (!id) redirect("/avatars");
+
+  const accountId = await getAccountId();
+  const supabase = await createClient();
+
+  const { data: avatar } = await supabase
+    .from("avatars")
+    .select("id, elevenlabs_voice_id, voice_reference_paths")
+    .eq("id", id)
+    .eq("account_id", accountId)
+    .single();
+
+  if (!avatar) {
+    redirect(`/avatars?error=${encodeURIComponent("Avatar no encontrado.")}`);
+  }
+
+  if (avatar.elevenlabs_voice_id) {
+    try {
+      await deleteElevenLabsVoice(avatar.elevenlabs_voice_id);
+    } catch {
+      // Best-effort: the voice may already be gone at ElevenLabs.
+    }
+  }
+
+  await removeStorageObjects(
+    storageCleanupClient(supabase),
+    VOICE_REFERENCES_BUCKET,
+    avatar.voice_reference_paths ?? []
+  );
+
+  const { error } = await supabase
+    .from("avatars")
+    .update({ elevenlabs_voice_id: null, voice_reference_paths: [] })
+    .eq("id", id);
+
+  if (error) {
+    redirect(`/avatars/${id}?error=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidatePath(`/avatars/${id}`);
+  redirect(`/avatars/${id}?ok=${encodeURIComponent("Voz clonada eliminada.")}`);
+}
+
+// ---------------------------------------------------------------------------
+// Delete the avatar
+// ---------------------------------------------------------------------------
+
+// Permanent. Deleting the row cascades to the avatar's videos, presets and look
+// cache (see migration 0001), so this also clears everything it owns in Storage
+// and the cloned voice at ElevenLabs.
+//
+// It does NOT refund credits: the videos were already rendered and paid for.
+// The charge rows in `generations_log` survive the cascade (migration 0016), so
+// /credits keeps matching the balance after the avatar is gone.
 export async function deleteAvatar(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   if (!id) redirect("/avatars");
 
+  const accountId = await getAccountId();
   const supabase = await createClient();
 
-  // Best-effort cleanup of stored photos before deleting the row.
+  // Ownership check on top of RLS.
   const { data: avatar } = await supabase
     .from("avatars")
-    .select("reference_photos")
+    .select("id, name, reference_photos, voice_reference_paths, elevenlabs_voice_id")
     .eq("id", id)
+    .eq("account_id", accountId)
     .single();
 
-  if (avatar?.reference_photos?.length) {
-    await supabase.storage.from(REFERENCE_PHOTOS_BUCKET).remove(avatar.reference_photos);
+  if (!avatar) {
+    redirect(`/avatars?error=${encodeURIComponent("Avatar no encontrado.")}`);
   }
 
-  const { error } = await supabase.from("avatars").delete().eq("id", id);
+  // Storage + ElevenLabs cleanup (all best-effort) before dropping the row —
+  // once the row is gone we no longer know which files belonged to it.
+  const storage = storageCleanupClient(supabase);
+  const prefix = `${accountId}/${id}`;
+
+  await Promise.all([
+    // Whole folders, so files not tracked on the row (older uploads, renders
+    // per job id) go too.
+    removeStorageFolder(storage, REFERENCE_PHOTOS_BUCKET, prefix),
+    removeStorageFolder(storage, VOICE_REFERENCES_BUCKET, prefix),
+    removeStorageFolder(storage, GENERATED_CONTENT_BUCKET, prefix),
+    // Plus anything recorded on the row outside that prefix (legacy paths).
+    removeStorageObjects(storage, REFERENCE_PHOTOS_BUCKET, avatar.reference_photos ?? []),
+    removeStorageObjects(storage, VOICE_REFERENCES_BUCKET, avatar.voice_reference_paths ?? []),
+  ]);
+
+  if (avatar.elevenlabs_voice_id) {
+    try {
+      await deleteElevenLabsVoice(avatar.elevenlabs_voice_id);
+    } catch {
+      // Best-effort: never block the delete on the voice provider.
+    }
+  }
+
+  const { error } = await supabase
+    .from("avatars")
+    .delete()
+    .eq("id", id)
+    .eq("account_id", accountId);
+
   if (error) {
     redirect(`/avatars/${id}?error=${encodeURIComponent(error.message)}`);
   }
 
   revalidatePath("/avatars");
-  redirect("/avatars");
+  revalidatePath("/gallery");
+  redirect(`/avatars?ok=${encodeURIComponent(`Avatar "${avatar.name}" eliminado.`)}`);
 }

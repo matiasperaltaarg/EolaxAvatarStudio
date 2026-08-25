@@ -133,6 +133,23 @@ a:hover {
 .card.danger {
   border-color: rgba(255, 107, 107, 0.35);
 }
+.danger-action {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 0;
+}
+.danger-action + .danger-action {
+  border-top: 1px solid var(--line-solid);
+}
+.danger-action form {
+  margin: 0;
+}
+.danger-action button {
+  white-space: nowrap;
+}
 
 /* ---- Typography helpers ---- */
 h1 {
@@ -298,6 +315,16 @@ button.danger-btn {
   background: linear-gradient(135deg, #c0392b, #e05647);
   box-shadow: 0 10px 30px -12px #c0392b55;
 }
+/* Quiet destructive action: reads as secondary until hovered. */
+button.secondary.danger-outline {
+  color: #ff8b7d;
+  border-color: rgba(255, 107, 107, 0.35);
+}
+button.secondary.danger-outline:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(192, 57, 43, 0.9);
+  border-color: #c0392b;
+}
 
 /* ---- Rows ---- */
 .row {
@@ -432,6 +459,24 @@ button.danger-btn {
 }
 .avatar-name {
   font-weight: 600;
+}
+/* Row + its own delete action side by side (the row itself is one big link, so
+   the delete form has to live outside it). */
+.avatar-row-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+}
+.avatar-row-wrap .avatar-row {
+  flex: 1;
+  min-width: 0;
+}
+.avatar-row-delete {
+  display: flex;
+}
+.avatar-row-delete button {
+  height: 100%;
+  white-space: nowrap;
 }
 
 /* ---- Reference photos ---- */
@@ -725,6 +770,18 @@ button.danger-btn {
   object-fit: cover;
   max-height: 360px;
   margin-bottom: 4px;
+}
+.item-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.item-actions > a,
+.item-actions > form {
+  flex: 1;
+}
+.item-actions button {
+  width: 100%;
 }
 
 /* ===================== CREDITS ===================== */

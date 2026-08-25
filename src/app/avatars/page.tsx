@@ -4,12 +4,20 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccountId } from "@/lib/account";
 import { languageLabel, type Avatar } from "@/lib/avatars";
 import AppShell from "@/app/AppShell";
+import Toast from "@/app/Toast";
+import ConfirmSubmit from "@/app/ConfirmSubmit";
+import { deleteAvatar } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 const STATUS_LABEL: Record<string, string> = { active: "activo", draft: "borrador" };
 
-export default async function AvatarsPage() {
+export default async function AvatarsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; ok?: string }>;
+}) {
+  const { error, ok } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -40,6 +48,8 @@ export default async function AvatarsPage() {
         </Link>
       </header>
 
+      <Toast ok={ok} error={error} />
+
       {list.length === 0 ? (
         <div className="card empty">
           <p style={{ marginTop: 0 }}>Aún no hay avatares.</p>
@@ -54,7 +64,7 @@ export default async function AvatarsPage() {
       ) : (
         <ul className="avatar-list">
           {list.map((a) => (
-            <li key={a.id}>
+            <li key={a.id} className="avatar-row-wrap">
               <Link href={`/avatars/${a.id}`} className="avatar-row">
                 <div>
                   <div className="avatar-name">{a.name}</div>
@@ -73,6 +83,17 @@ export default async function AvatarsPage() {
                   </span>
                 </div>
               </Link>
+              <form action={deleteAvatar} className="avatar-row-delete">
+                <input type="hidden" name="id" value={a.id} />
+                <ConfirmSubmit
+                  className="secondary danger-outline"
+                  title="Eliminar avatar"
+                  message={`¿Eliminar el avatar "${a.name}"? Se borran también sus fotos, su voz clonada y todos sus vídeos generados. Esta acción no se puede deshacer.`}
+                  pendingLabel="…"
+                >
+                  Eliminar
+                </ConfirmSubmit>
+              </form>
             </li>
           ))}
         </ul>

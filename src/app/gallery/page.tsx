@@ -4,6 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { getAccountId } from "@/lib/account";
 import { GENERATED_CONTENT_BUCKET, languageLabel } from "@/lib/avatars";
 import AppShell from "@/app/AppShell";
+import Toast from "@/app/Toast";
+import ConfirmSubmit from "@/app/ConfirmSubmit";
+import { deleteVideo } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +21,12 @@ type GalleryVideo = {
   avatars: { name: string } | null;
 };
 
-export default async function GalleryPage() {
+export default async function GalleryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; ok?: string }>;
+}) {
+  const { error, ok } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -61,6 +69,8 @@ export default async function GalleryPage() {
           </div>
         </header>
 
+        <Toast ok={ok} error={error} />
+
         {videos.length === 0 ? (
         <div className="card empty">
           <p style={{ marginTop: 0 }}>Aún no hay vídeos.</p>
@@ -92,11 +102,22 @@ export default async function GalleryPage() {
                     {v.overlay_text ? ` · “${v.overlay_text}”` : ""}
                   </span>
                 </div>
-                {url ? (
-                  <a href={url} download={`${v.avatars?.name ?? "video"}_${v.language ?? ""}.mp4`}>
-                    <button className="secondary" type="button">Descargar</button>
-                  </a>
-                ) : null}
+                <div className="item-actions">
+                  {url ? (
+                    <a href={url} download={`${v.avatars?.name ?? "video"}_${v.language ?? ""}.mp4`}>
+                      <button className="secondary" type="button">Descargar</button>
+                    </a>
+                  ) : null}
+                  <form action={deleteVideo}>
+                    <input type="hidden" name="id" value={v.id} />
+                    <ConfirmSubmit
+                      className="secondary danger-outline"
+                      message="¿Eliminar este vídeo? Se borra el archivo de forma permanente. Los créditos ya consumidos no se devuelven."
+                    >
+                      Eliminar
+                    </ConfirmSubmit>
+                  </form>
+                </div>
               </div>
             );
           })}
